@@ -1,0 +1,60 @@
+# Dependency directories
+node_modules/
+
+# Build and Expo directories
+.expo/
+dist/
+web-build/
+expo-env.d.ts
+
+# Metro / bundler cache
+.metro-health-check*
+haste-map-*
+
+# Android-specific build and IDE files
+android/build/
+android/app/build/
+android/.gradle/
+android/local.properties
+.gradle/
+build/
+*.apk
+*.aar
+*.ap_
+
+# iOS-specific build and dependency files
+ios/build/
+ios/Pods/
+ios/.xcode.env.local
+*.xcworkspace/
+!ios/*.xcworkspace
+xcuserdata/
+DerivedData/
+
+# Keystores and private keys / certificates (Crucial for security)
+*.jks
+*.keystore
+*.p8
+*.p12
+*.key
+*.pem
+*.mobileprovision
+
+# Local environment files
+.env
+.env*.local
+
+# Editor directories and common files
+.vscode/
+.idea/
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+*.orig
+*.orig.*
+
+# TypeScript cache
+*.tsbuildinfo

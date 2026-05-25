@@ -1,0 +1,191 @@
+<!DOCTYPE html><html class="light" lang="en" style=""><head>
+<meta charset="utf-8">
+<meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" name="viewport">
+<title class="">ETLAB GCEK - Login</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif:ital,wght@0,400;0,700;0,900;1,400;1,700&amp;family=Inter:wght@300;400;500;600&amp;family=Public+Sans:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "on-error": "#ffffff",
+                        "secondary-container": "#dfe3e8",
+                        "on-error-container": "#93000a",
+                        "on-primary-fixed": "#001946",
+                        "outline": "#737784",
+                        "inverse-on-surface": "#f2f0f1",
+                        "primary-container": "#3366cc",
+                        "surface": "#faf9fa",
+                        "on-primary-container": "#e7ebff",
+                        "surface-variant": "#e3e2e3",
+                        "on-surface-variant": "#434653",
+                        "tertiary-fixed": "#f9e37a",
+                        "on-primary": "#ffffff",
+                        "background": "#faf9fa",
+                        "primary-fixed": "#d9e2ff",
+                        "outline-variant": "#c3c6d5",
+                        "inverse-primary": "#b1c5ff",
+                        "inverse-surface": "#303031",
+                        "on-background": "#1b1c1d",
+                        "on-primary-fixed-variant": "#00419d",
+                        "surface-dim": "#dbdadb",
+                        "on-tertiary-container": "#4a3f00",
+                        "surface-tint": "#2259bf",
+                        "on-tertiary-fixed-variant": "#524600",
+                        "on-tertiary-fixed": "#211b00",
+                        "surface-container-high": "#e9e8e9",
+                        "on-secondary-fixed-variant": "#42474b",
+                        "error-container": "#ffdad6",
+                        "surface-container": "#efedee",
+                        "on-surface": "#1b1c1d",
+                        "surface-bright": "#faf9fa",
+                        "surface-container-lowest": "#ffffff",
+                        "surface-container-highest": "#e3e2e3",
+                        "tertiary-container": "#bfab49",
+                        "primary-fixed-dim": "#b1c5ff",
+                        "on-tertiary": "#ffffff",
+                        "error": "#ba1a1a",
+                        "secondary-fixed-dim": "#c2c7cc",
+                        "on-secondary-container": "#606569",
+                        "secondary": "#5a5f63",
+                        "tertiary": "#6d5e00",
+                        "on-secondary": "#ffffff",
+                        "primary": "#094cb2",
+                        "surface-container-low": "#f5f3f4",
+                        "on-secondary-fixed": "#171c20",
+                        "secondary-fixed": "#dfe3e8",
+                        "tertiary-fixed-dim": "#dcc661"
+                    },
+                    borderRadius: {
+                        "DEFAULT": "0.125rem",
+                        "lg": "0.25rem",
+                        "xl": "0.5rem",
+                        "full": "0.75rem"
+                    },
+                    fontFamily: {
+                        "headline": ["Noto Serif", "serif"],
+                        "display": ["Noto Serif", "serif"],
+                        "body": ["Inter", "sans-serif"],
+                        "label": ["Public Sans", "sans-serif"]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        /* Custom styles for the high-end editorial feel */
+        .glass-panel {
+            background: rgba(255, 255, 255, 0.8);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+        }
+        
+        .ghost-border {
+            border: 1px solid rgba(195, 198, 213, 0.15); /* outline-variant at 15% */
+        }
+        
+        /* Smooth transitions for inputs */
+        .input-transition {
+            transition: all 0.3s ease;
+        }
+        
+        .input-transition:focus-within {
+            box-shadow: 0 0 0 1px #094cb2; /* primary color */
+            border-color: #094cb2;
+        }
+    </style>
+</head>
+<body class="bg-surface text-on-surface font-body antialiased min-h-screen flex flex-col items-center justify-center relative overflow-hidden">
+<!-- Decorative Background Element -->
+<div class="absolute inset-0 z-0 opacity-10 pointer-events-none flex items-center justify-center">
+<img alt="" class="w-full h-full object-cover mix-blend-multiply" data-alt="A macro shot of beautifully textured, aged parchment paper subtly catching the light in a bright, modern academic setting. The lighting is soft and diffused, emphasizing the high-end editorial feel of the light-mode UI. The color palette focuses on pristine whites, soft creams, and the deepest archival blacks to create a scholarly and sophisticated atmosphere." src="https://lh3.googleusercontent.com/aida-public/AB6AXuAMzc5wF0-WWKJkapEzWPLAdGv-6Zf1wfZrt1W2HtpA3Z-pMoae5pElWAbwwVLhU-ar3tI0MgzySe2Ikp8wsiFkepr9Okh6YX1SvT-AMa5rCgrjoOqBK8rORbedhrVP8Xj2lL2utxYFIDw3LUN7NM66boEowtpq4h2ephuLC1xp967jusjXHa0RnWvEUTwWBCTY-Ckz0EEKIxKp2Ourr-jB1j5g6mVSITY3bSANPcJBlBFsY7taWrr78YVGR3Y3TSNdGV42MbHcxDA">
+</div>
+<!-- Main Content Canvas -->
+<main class="w-full max-w-md px-8 py-12 z-10 flex flex-col relative h-[100dvh] md:h-auto justify-center bg-surface-container-lowest/80 backdrop-blur-3xl md:rounded-xl md:shadow-[0_24px_40px_-12px_rgba(27,28,29,0.06)] md:ghost-border" style="opacity: 1; transform: translateY(0px); transition: opacity 0.8s ease-out, transform 0.8s ease-out;">
+<!-- Header Section -->
+<header class="text-center mb-12">
+<div class="inline-flex items-center justify-center w-16 h-16 rounded-full bg-surface-container-high mb-6 shadow-sm">
+<span class="material-symbols-outlined text-primary text-3xl" style="font-variation-settings: &quot;FILL&quot; 1;">account_balance</span>
+</div>
+<h1 class="font-headline text-4xl text-on-surface tracking-tight mb-2 leading-tight">Welcome to ETLAB GCEK</h1>
+<p class="font-body text-on-surface-variant text-sm mt-3">The Digital Curator</p>
+</header>
+<!-- Login Form -->
+<form class="flex flex-col gap-6 w-full" id="loginForm">
+<!-- Input Group: Username -->
+<div class="flex flex-col gap-1 relative">
+<label class="font-label text-xs uppercase tracking-widest text-on-surface-variant ml-1" for="username">University ID</label>
+<div class="relative flex items-center bg-surface-container-lowest rounded-lg ghost-border input-transition">
+<span class="material-symbols-outlined absolute left-4 text-outline-variant text-lg">person</span>
+<input class="w-full bg-transparent border-none py-4 pl-12 pr-4 text-on-surface font-body placeholder:text-outline-variant focus:ring-0 rounded-lg text-base" id="username" name="username" placeholder="Enter your ID or Username" required="" type="text">
+</div>
+</div>
+<!-- Input Group: Password -->
+<div class="flex flex-col gap-1 relative mt-2">
+<label class="font-label text-xs uppercase tracking-widest text-on-surface-variant ml-1" for="password">Password</label>
+<div class="relative flex items-center bg-surface-container-lowest rounded-lg ghost-border input-transition">
+<span class="material-symbols-outlined absolute left-4 text-outline-variant text-lg">key</span>
+<input class="w-full bg-transparent border-none py-4 pl-12 pr-12 text-on-surface font-body placeholder:text-outline-variant focus:ring-0 rounded-lg text-base" id="password" name="password" placeholder="Enter your password" required="" type="password">
+<button aria-label="Toggle password visibility" class="absolute right-4 text-outline-variant hover:text-primary transition-colors focus:outline-none" type="button">
+<span class="material-symbols-outlined text-lg">visibility</span>
+</button>
+</div>
+</div>
+<!-- Options Row -->
+<div class="flex items-center justify-between mt-2">
+<label class="flex items-center gap-2 cursor-pointer group">
+<div class="relative flex items-center justify-center w-5 h-5 rounded DEFAULT ghost-border bg-surface-container-lowest group-hover:border-primary transition-colors">
+<input class="opacity-0 absolute inset-0 w-full h-full cursor-pointer peer" type="checkbox">
+<span class="material-symbols-outlined text-[14px] text-primary opacity-0 peer-checked:opacity-100 transition-opacity" style="font-variation-settings: &quot;FILL&quot; 1;">check</span>
+</div>
+<span class="font-body text-sm text-on-surface-variant group-hover:text-on-surface transition-colors">Keep me logged in</span>
+</label>
+</div>
+<!-- Primary Action -->
+<button class="mt-8 w-full py-4 rounded-xl bg-gradient-to-r from-primary to-surface-tint text-on-primary font-label text-sm uppercase tracking-widest hover:shadow-lg hover:shadow-primary/20 transition-all duration-300 active:scale-[0.98] flex justify-center items-center gap-2" type="submit">
+                Sign In
+                <span class="material-symbols-outlined text-lg">arrow_forward</span>
+</button>
+</form>
+<!-- Footer Links -->
+<footer class="mt-12 flex flex-col items-center gap-4 border-t border-surface-container-high pt-8">
+<a class="font-body text-sm text-on-surface hover:text-primary transition-colors underline decoration-outline-variant hover:decoration-primary underline-offset-4" href="#">Forgot Password?</a>
+
+</footer>
+</main>
+<script>
+        // Simple script to handle password visibility toggle
+        document.addEventListener('DOMContentLoaded', () => {
+            const toggleBtn = document.querySelector('button[aria-label="Toggle password visibility"]');
+            const passwordInput = document.getElementById('password');
+            const iconSpan = toggleBtn.querySelector('.material-symbols-outlined');
+
+            toggleBtn.addEventListener('click', () => {
+                if (passwordInput.type === 'password') {
+                    passwordInput.type = 'text';
+                    iconSpan.textContent = 'visibility_off';
+                } else {
+                    passwordInput.type = 'password';
+                    iconSpan.textContent = 'visibility';
+                }
+            });
+
+            // Add subtle entrance animation
+            const mainContent = document.querySelector('main');
+            mainContent.style.opacity = '0';
+            mainContent.style.transform = 'translateY(10px)';
+            
+            setTimeout(() => {
+                mainContent.style.transition = 'opacity 0.8s ease-out, transform 0.8s ease-out';
+                mainContent.style.opacity = '1';
+                mainContent.style.transform = 'translateY(0)';
+            }, 100);
+        });
+    </script>
+
+
+</body></html>
