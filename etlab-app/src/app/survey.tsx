@@ -8,15 +8,13 @@ import {
 } from 'react-native';
 import { Colors, Fonts, Spacing, Roundness } from '@/constants/theme';
 import { useColorScheme } from 'react-native';
-import { useLogin } from '@/components/login-context';
 import { ProtectedScreen } from '@/components/protected-screen';
+import { ProfileButton } from '@/components/profile-button';
 
 export default function SurveyScreen() {
   const colorScheme = useColorScheme();
   const scheme = colorScheme === 'dark' ? 'dark' : 'light';
   const colors = Colors[scheme];
-  const { username } = useLogin();
-
   return (
     <ProtectedScreen>
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
@@ -26,11 +24,7 @@ export default function SurveyScreen() {
           <Text style={[styles.topBarSub, { color: colors.textSecondary }]}>FEEDBACK</Text>
           <Text style={[styles.topBarTitle, { color: colors.text }]}>Survey</Text>
         </View>
-        <View style={[styles.profileCircle, { backgroundColor: colors.surfaceHigh }]}>
-          <Text style={[styles.profileLetter, { color: colors.textSecondary }]}>
-            {username ? username.charAt(0).toUpperCase() : 'U'}
-          </Text>
-        </View>
+        <ProfileButton />
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollContainer}>

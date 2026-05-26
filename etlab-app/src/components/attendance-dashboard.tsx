@@ -4,10 +4,10 @@ import {
   View,
   Text,
   ScrollView,
-  TouchableOpacity,
   SafeAreaView,
 } from 'react-native';
 import { useLogin } from './login-context';
+import { ProfileButton } from './profile-button';
 import { Colors, Fonts, Spacing, Roundness } from '@/constants/theme';
 import { useColorScheme } from 'react-native';
 
@@ -82,7 +82,7 @@ export default function AttendanceDashboard() {
   const scheme = colorScheme === 'dark' ? 'dark' : 'light';
   const colors = Colors[scheme];
 
-  const { username, logout } = useLogin();
+  const { username } = useLogin();
 
   const subjects: Omit<SubjectCardProps, 'colors'>[] = [
     {
@@ -116,11 +116,7 @@ export default function AttendanceDashboard() {
           <Text style={[styles.topBarSub, { color: colors.textSecondary }]}>FALL SEMESTER 2024</Text>
           <Text style={[styles.topBarTitle, { color: colors.text }]}>Attendance Overview</Text>
         </View>
-        <TouchableOpacity style={[styles.profileCircle, { backgroundColor: colors.surfaceHigh }]} onPress={logout}>
-          <Text style={[styles.profileLetter, { color: colors.textSecondary }]}>
-            {username ? username.charAt(0).toUpperCase() : 'U'}
-          </Text>
-        </TouchableOpacity>
+        <ProfileButton />
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollContainer}>

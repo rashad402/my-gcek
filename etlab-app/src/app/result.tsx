@@ -9,9 +9,9 @@ import {
   Animated,
 } from 'react-native';
 import { ProtectedScreen } from '@/components/protected-screen';
+import { ProfileButton } from '@/components/profile-button';
 import { Colors, Fonts, Spacing, Roundness } from '@/constants/theme';
 import { useColorScheme } from 'react-native';
-import { useLogin } from '@/components/login-context';
 
 const SERIES_ITEMS = [
   { label: 'Assessment', title: 'Series 1' },
@@ -45,8 +45,6 @@ export default function ResultScreen() {
   const colorScheme = useColorScheme();
   const scheme = colorScheme === 'dark' ? 'dark' : 'light';
   const colors = Colors[scheme];
-  const { username } = useLogin();
-
   const [seriesExpanded, setSeriesExpanded] = useState(false);
   const animHeight = useRef(new Animated.Value(0)).current;
   const animRotation = useRef(new Animated.Value(0)).current;
@@ -87,11 +85,7 @@ export default function ResultScreen() {
           <Text style={[styles.topBarSub, { color: colors.textSecondary }]}>ACADEMIC RECORDS</Text>
           <Text style={[styles.topBarTitle, { color: colors.text }]}>Results</Text>
         </View>
-        <View style={[styles.profileCircle, { backgroundColor: colors.surfaceHigh }]}>
-          <Text style={[styles.profileLetter, { color: colors.textSecondary }]}>
-            {username ? username.charAt(0).toUpperCase() : 'U'}
-          </Text>
-        </View>
+        <ProfileButton />
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollContainer} showsVerticalScrollIndicator={false}>
