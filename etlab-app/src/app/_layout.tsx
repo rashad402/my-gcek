@@ -8,10 +8,26 @@ import { useColorScheme } from 'react-native';
 
 import { AnimatedSplashOverlay } from '@/components/animated-icon';
 import AppTabs from '@/components/app-tabs';
-import { LoginProvider } from '@/components/login-context';
+import { LoginProvider, useLogin } from '@/components/login-context';
 
 // Keep splash screen visible until fonts load
 SplashScreen.preventAutoHideAsync().catch(() => {});
+
+/**
+ * Rendered inside LoginProvider so it can read isRestoringSession.
+ * Blocks rendering the tab navigator until SecureStore has been checked —
+ * prevents a flash of the login screen when the user had "Keep me logged in" active.
+ */
+function AppContent() {
+  const { isRestoringSession } = useLogin();
+  if (isRestoringSession) return null;
+  return (
+    <>
+      <AnimatedSplashOverlay />
+      <AppTabs />
+    </>
+  );
+}
 
 export default function TabLayout() {
   const colorScheme = useColorScheme();
@@ -36,8 +52,7 @@ export default function TabLayout() {
   return (
     <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
       <LoginProvider>
-        <AnimatedSplashOverlay />
-        <AppTabs />
+        <AppContent />
       </LoginProvider>
     </ThemeProvider>
   );

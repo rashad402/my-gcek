@@ -27,7 +27,7 @@ export default function LoginScreen() {
   const [showPassword, setShowPassword] = useState(false);
   const [keepLoggedIn, setKeepLoggedIn] = useState(false);
 
-  const handleSignIn = () => {
+  const handleSignIn = async () => {
     const trimmedUser = usernameInput.trim();
     const trimmedPass = passwordInput.trim();
 
@@ -41,7 +41,7 @@ export default function LoginScreen() {
       (trimmedUser.toLowerCase() === 'admin' && trimmedPass === 'password') ||
       (trimmedUser.toUpperCase() === 'GCEK2026' && trimmedPass === 'password')
     ) {
-      login(trimmedUser);
+      await login(trimmedUser, keepLoggedIn);
     } else {
       Alert.alert(
         'Invalid Credentials',
