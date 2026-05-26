@@ -1,0 +1,11 @@
+{
+  "name": "etlab-portal-root",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "start": "npm run start --prefix etlab-app",
+    "android": "npm run android --prefix etlab-app",
+    "ios": "npm run ios --prefix etlab-app",
+    "web": "npm run web --prefix etlab-app"
+  }
+}
