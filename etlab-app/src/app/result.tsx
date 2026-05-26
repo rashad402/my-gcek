@@ -8,6 +8,7 @@ import {
   TouchableOpacity,
   Animated,
 } from 'react-native';
+import { ProtectedScreen } from '@/components/protected-screen';
 import { Colors, Fonts, Spacing, Roundness } from '@/constants/theme';
 import { useColorScheme } from 'react-native';
 import { useLogin } from '@/components/login-context';
@@ -78,6 +79,7 @@ export default function ResultScreen() {
   });
 
   return (
+    <ProtectedScreen>
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
       {/* Header bar */}
       <View style={[styles.topBar, { borderBottomColor: colors.surfaceContainer }]}>
@@ -177,6 +179,7 @@ export default function ResultScreen() {
         />
       </ScrollView>
     </SafeAreaView>
+    </ProtectedScreen>
   );
 }
 

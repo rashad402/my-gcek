@@ -9,6 +9,7 @@ import {
 import { Colors, Fonts, Spacing, Roundness } from '@/constants/theme';
 import { useColorScheme } from 'react-native';
 import { useLogin } from '@/components/login-context';
+import { ProtectedScreen } from '@/components/protected-screen';
 
 export default function SurveyScreen() {
   const colorScheme = useColorScheme();
@@ -17,6 +18,7 @@ export default function SurveyScreen() {
   const { username } = useLogin();
 
   return (
+    <ProtectedScreen>
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
       {/* Header */}
       <View style={[styles.topBar, { borderBottomColor: colors.surfaceContainer }]}>
@@ -51,6 +53,7 @@ export default function SurveyScreen() {
         </View>
       </ScrollView>
     </SafeAreaView>
+    </ProtectedScreen>
   );
 }
 
