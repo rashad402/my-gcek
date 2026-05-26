@@ -6,8 +6,7 @@ import {
   TabTriggerSlotProps,
   TabListProps,
 } from 'expo-router/ui';
-import { SymbolView } from 'expo-symbols';
-import { Pressable, useColorScheme, View, StyleSheet } from 'react-native';
+import { Pressable, useColorScheme, View, Text, StyleSheet } from 'react-native';
 
 import { useLogin } from './login-context';
 import { ThemedText } from './themed-text';
@@ -24,12 +23,20 @@ export default function AppTabs() {
       <TabList asChild>
         <CustomTabList>
           <TabTrigger name="home" href="/" asChild>
-            <TabButton>{isLoggedIn ? "Attendance" : "Login"}</TabButton>
+            <TabButton>📅 {isLoggedIn ? "Attendance" : "Login"}</TabButton>
           </TabTrigger>
           {isLoggedIn && (
-            <TabTrigger name="explore" href="/explore" asChild>
-              <TabButton>Design System</TabButton>
-            </TabTrigger>
+            <>
+              <TabTrigger name="result" href="/result" asChild>
+                <TabButton>⭐ Result</TabButton>
+              </TabTrigger>
+              <TabTrigger name="assignment" href="/assignment" asChild>
+                <TabButton>📝 Assignment</TabButton>
+              </TabTrigger>
+              <TabTrigger name="survey" href="/survey" asChild>
+                <TabButton>📋 Survey</TabButton>
+              </TabTrigger>
+            </>
           )}
         </CustomTabList>
       </TabList>

@@ -116,8 +116,10 @@ export default function AttendanceDashboard() {
           <Text style={[styles.topBarSub, { color: colors.textSecondary }]}>FALL SEMESTER 2024</Text>
           <Text style={[styles.topBarTitle, { color: colors.text }]}>Attendance Overview</Text>
         </View>
-        <TouchableOpacity style={[styles.logoutButton, { backgroundColor: colors.surfaceLow }]} onPress={logout}>
-          <Text style={[styles.logoutText, { color: colors.text }]}>Logout</Text>
+        <TouchableOpacity style={[styles.profileCircle, { backgroundColor: colors.surfaceHigh }]} onPress={logout}>
+          <Text style={[styles.profileLetter, { color: colors.textSecondary }]}>
+            {username ? username.charAt(0).toUpperCase() : 'U'}
+          </Text>
         </TouchableOpacity>
       </View>
 
@@ -175,14 +177,16 @@ const styles = StyleSheet.create({
     fontSize: 22,
     marginTop: 2,
   },
-  logoutButton: {
-    paddingHorizontal: Spacing.three,
-    paddingVertical: Spacing.one + 2,
-    borderRadius: Roundness.md,
+  profileCircle: {
+    width: 32,
+    height: 32,
+    borderRadius: Roundness.full,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-  logoutText: {
-    fontFamily: Fonts.bodyMedium,
-    fontSize: 12,
+  profileLetter: {
+    fontFamily: Fonts.bodyBold,
+    fontSize: 14,
   },
   scrollContainer: {
     padding: Spacing.four,
