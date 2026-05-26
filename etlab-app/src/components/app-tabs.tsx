@@ -102,13 +102,6 @@ export default function AppTabs() {
         }}
       />
 
-      {/* Hide the old explore (Design System) route from tab bar */}
-      <Tabs.Screen
-        name="explore"
-        options={{
-          href: null,
-        }}
-      />
     </Tabs>
   );
 }
