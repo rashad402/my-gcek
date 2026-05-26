@@ -65,7 +65,7 @@ export function ProfileButton() {
                 {username || 'Student'}
               </Text>
               <Text style={[styles.roleText, { color: colors.textSecondary }]}>
-                Government College of Engineering, Karad
+                Government College of Engineering, Kannur
               </Text>
               <View style={[styles.badge, { backgroundColor: colors.surfaceContainer }]}>
                 <Text style={[styles.badgeText, { color: colors.primary }]}>
