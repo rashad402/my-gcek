@@ -12,17 +12,21 @@ import { Colors, Fonts, Spacing, Roundness } from '@/constants/theme';
 
 /**
  * Shared profile avatar button used across all authenticated screens.
- * Tapping opens a bottom sheet — full profile UI to be provided later.
- * Does NOT trigger logout directly; logout will be an action inside the profile sheet.
+ * Tapping opens a bottom sheet with user info and a functional Log Out button.
  */
 export function ProfileButton() {
   const [visible, setVisible] = useState(false);
   const colorScheme = useColorScheme();
   const scheme = colorScheme === 'dark' ? 'dark' : 'light';
   const colors = Colors[scheme];
-  const { username } = useLogin();
+  const { username, logout } = useLogin();
 
   const initial = username ? username.charAt(0).toUpperCase() : 'U';
+
+  const handleLogout = async () => {
+    setVisible(false);
+    await logout();
+  };
 
   return (
     <>
@@ -35,7 +39,7 @@ export function ProfileButton() {
         <Text style={[styles.initial, { color: colors.textSecondary }]}>{initial}</Text>
       </TouchableOpacity>
 
-      {/* Placeholder bottom sheet — UI will be replaced when design is ready */}
+      {/* Profile bottom sheet */}
       <Modal
         visible={visible}
         transparent
@@ -51,17 +55,46 @@ export function ProfileButton() {
           {/* Handle */}
           <View style={[styles.handle, { backgroundColor: colors.outlineVariant }]} />
 
-          <Text style={[styles.sheetTitle, { color: colors.text }]}>Profile</Text>
-          <Text style={[styles.sheetBody, { color: colors.textSecondary }]}>
-            Profile UI coming soon. Full design will be applied in a future update.
-          </Text>
+          {/* Profile Header / Details */}
+          <View style={styles.profileHeader}>
+            <View style={[styles.largeAvatar, { backgroundColor: colors.surfaceHigh }]}>
+              <Text style={[styles.largeAvatarText, { color: colors.primary }]}>{initial}</Text>
+            </View>
+            <View style={styles.userInfo}>
+              <Text style={[styles.usernameText, { color: colors.text }]}>
+                {username || 'Student'}
+              </Text>
+              <Text style={[styles.roleText, { color: colors.textSecondary }]}>
+                Government College of Engineering, Karad
+              </Text>
+              <View style={[styles.badge, { backgroundColor: colors.surfaceContainer }]}>
+                <Text style={[styles.badgeText, { color: colors.primary }]}>
+                  Academic Session: 2025-2026
+                </Text>
+              </View>
+            </View>
+          </View>
 
-          <TouchableOpacity
-            style={[styles.closeButton, { backgroundColor: colors.surfaceContainer }]}
-            onPress={() => setVisible(false)}
-          >
-            <Text style={[styles.closeText, { color: colors.text }]}>Close</Text>
-          </TouchableOpacity>
+          <View style={[styles.divider, { backgroundColor: colors.outlineVariant }]} />
+
+          {/* Action Buttons */}
+          <View style={styles.actionsContainer}>
+            <TouchableOpacity
+              style={[styles.logoutButton, { backgroundColor: colors.errorContainer }]}
+              onPress={handleLogout}
+              activeOpacity={0.8}
+            >
+              <Text style={[styles.logoutText, { color: colors.error }]}>Log Out</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.closeButton, { backgroundColor: colors.surfaceContainer }]}
+              onPress={() => setVisible(false)}
+              activeOpacity={0.85}
+            >
+              <Text style={[styles.closeText, { color: colors.text }]}>Close</Text>
+            </TouchableOpacity>
+          </View>
         </View>
       </Modal>
     </>
@@ -103,20 +136,69 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
     marginBottom: Spacing.one,
   },
-  sheetTitle: {
-    fontFamily: Fonts.headlineBold,
-    fontSize: 22,
+  profileHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.three,
+    marginTop: Spacing.one,
+    marginBottom: Spacing.two,
   },
-  sheetBody: {
+  largeAvatar: {
+    width: 64,
+    height: 64,
+    borderRadius: Roundness.full,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  largeAvatarText: {
+    fontFamily: Fonts.headlineBold,
+    fontSize: 28,
+  },
+  userInfo: {
+    flex: 1,
+    gap: Spacing.half,
+  },
+  usernameText: {
+    fontFamily: Fonts.headlineBold,
+    fontSize: 20,
+  },
+  roleText: {
     fontFamily: Fonts.body,
-    fontSize: 14,
-    lineHeight: 22,
+    fontSize: 12,
+  },
+  badge: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: Spacing.two,
+    paddingVertical: 2,
+    borderRadius: Roundness.sm,
+    marginTop: Spacing.half,
+  },
+  badgeText: {
+    fontFamily: Fonts.labelBold,
+    fontSize: 10,
+    textTransform: 'uppercase',
+  },
+  divider: {
+    height: 1,
+    width: '100%',
+    marginVertical: Spacing.one,
+  },
+  actionsContainer: {
+    gap: Spacing.two,
+  },
+  logoutButton: {
+    paddingVertical: Spacing.three,
+    borderRadius: Roundness.default,
+    alignItems: 'center',
+  },
+  logoutText: {
+    fontFamily: Fonts.bodyBold,
+    fontSize: 15,
   },
   closeButton: {
     paddingVertical: Spacing.three,
     borderRadius: Roundness.default,
     alignItems: 'center',
-    marginTop: Spacing.one,
   },
   closeText: {
     fontFamily: Fonts.bodyBold,
