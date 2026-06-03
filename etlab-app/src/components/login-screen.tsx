@@ -11,6 +11,7 @@ import {
   SafeAreaView,
   Alert,
   ActivityIndicator,
+  Linking,
 } from 'react-native';
 import { useLogin } from './login-context';
 import { Colors, Fonts, Spacing, Roundness } from '@/constants/theme';
@@ -155,7 +156,12 @@ export default function LoginScreen() {
 
             {/* Footer */}
             <View style={styles.footer}>
-              <Text style={[styles.footerLink, { color: colors.textSecondary }]}>
+              <TouchableOpacity onPress={() => Linking.openURL('https://gcek.etlab.in/user/resetpassword').catch(() => Alert.alert('Error', 'Unable to open forgot password page.'))}>
+                <Text style={[styles.footerLink, { color: colors.text }]}>
+                  Forgot Password?
+                </Text>
+              </TouchableOpacity>
+              <Text style={[styles.collegeText, { color: colors.textSecondary, marginTop: Spacing.two }]}>
                 Government College of Engineering, Kannur
               </Text>
             </View>
@@ -322,5 +328,10 @@ const styles = StyleSheet.create({
     fontFamily: Fonts.body,
     fontSize: 13,
     textDecorationLine: 'underline',
+  },
+  collegeText: {
+    fontFamily: Fonts.body,
+    fontSize: 12,
+    textAlign: 'center',
   },
 });

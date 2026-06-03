@@ -49,8 +49,6 @@ export function mergeCookies(older: string, newer: string): string {
   return Array.from(map.values()).join('; ');
 }
 
-// ─── CSRF extraction ────────────────────────────────────────────────────────
-
 /** Extract the CSRF token from the ETLAB login page HTML. */
 function extractCsrfToken(html: string): string | null {
   // Primary: LoginForm[_token]
@@ -75,13 +73,20 @@ function extractCsrfToken(html: string): string | null {
   const metaMatch = html.match(
     /meta\s+name\s*=\s*["']csrf-token["']\s+content\s*=\s*["']([^"']+)["']/
   );
-  return metaMatch ? metaMatch[1] : null;
+  if (metaMatch) return metaMatch[1];
+
+  // Fallback: Yii 1.x ajaxSetup YII_CSRF_TOKEN
+  const yii1Match = html.match(
+    /["']YII_CSRF_TOKEN["']\s*:\s*["']([^"']+)["']/
+  );
+  return yii1Match ? yii1Match[1] : null;
 }
 
 /** Extract the CSRF field name from the login page (for POST body key). */
 function extractCsrfFieldName(html: string): string {
   if (/name\s*=\s*["']LoginForm\[_token\]["']/.test(html)) return 'LoginForm[_token]';
   if (/name\s*=\s*["']_csrf-frontend["']/.test(html)) return '_csrf-frontend';
+  if (/["']YII_CSRF_TOKEN["']\s*:\s*/.test(html)) return 'YII_CSRF_TOKEN';
   return 'LoginForm[_token]'; // default
 }
 
@@ -162,17 +167,14 @@ export async function loginToEtlab(
   });
   const loginPageHtml = await loginPageRes.text();
   const csrfToken = extractCsrfToken(loginPageHtml);
-
-  if (!csrfToken) {
-    return { success: false, cookies: '', studentId: '', error: 'Unable to reach ETLAB. Please try again.' };
-  }
-
-  const csrfFieldName = extractCsrfFieldName(loginPageHtml);
+  const csrfFieldName = csrfToken ? extractCsrfFieldName(loginPageHtml) : '';
   let cookies = parseCookies(loginPageRes.headers.get('set-cookie'));
 
   // ── Step 2: POST credentials ────────────────────────────────────────
   const formBody = new URLSearchParams();
-  formBody.append(csrfFieldName, csrfToken);
+  if (csrfToken && csrfFieldName) {
+    formBody.append(csrfFieldName, csrfToken);
+  }
   formBody.append('LoginForm[username]', username);
   formBody.append('LoginForm[password]', password);
   formBody.append('LoginForm[rememberMe]', rememberMe ? '1' : '0');
