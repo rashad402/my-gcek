@@ -162,7 +162,8 @@ export async function loginToEtlab(
   rememberMe: boolean,
 ): Promise<LoginResult> {
   // ── Step 1: GET login page ──────────────────────────────────────────
-  const loginPageRes = await fetch(`${BASE_URL}/`, {
+  // Fetch directly from user/login to avoid intermediate redirect from /
+  const loginPageRes = await fetch(`${BASE_URL}/user/login`, {
     headers: { 'User-Agent': 'MyGCEK/1.0' },
   });
   const loginPageHtml = await loginPageRes.text();
@@ -187,60 +188,33 @@ export async function loginToEtlab(
       'User-Agent': 'MyGCEK/1.0',
     },
     body: formBody.toString(),
-    redirect: 'manual',
   });
 
-  // Merge any new cookies from the POST response
+  // Capture final response cookies
   const postCookies = parseCookies(loginRes.headers.get('set-cookie'));
   if (postCookies) {
     cookies = mergeCookies(cookies, postCookies);
   }
 
+  const responseHtml = await loginRes.text();
+
   // ── Step 3: Check result ────────────────────────────────────────────
-
-  // 302 redirect = successful login
-  if (loginRes.status >= 300 && loginRes.status < 400) {
-    const redirectUrl = loginRes.headers.get('location') || `${BASE_URL}/`;
-    const absoluteRedirect = redirectUrl.startsWith('http')
-      ? redirectUrl
-      : `${BASE_URL}${redirectUrl}`;
-
-    // Follow the redirect to get the dashboard page
-    const dashRes = await fetch(absoluteRedirect, {
-      headers: { 'Cookie': cookies, 'User-Agent': 'MyGCEK/1.0' },
-      redirect: 'manual',
-    });
-    const dashCookies = parseCookies(dashRes.headers.get('set-cookie'));
-    if (dashCookies) {
-      cookies = mergeCookies(cookies, dashCookies);
-    }
-
-    // If the dashboard itself redirects, follow once more
-    let dashHtml: string;
-    if (dashRes.status >= 300 && dashRes.status < 400) {
-      const secondRedirect = dashRes.headers.get('location') || `${BASE_URL}/`;
-      const absSecond = secondRedirect.startsWith('http') ? secondRedirect : `${BASE_URL}${secondRedirect}`;
-      const finalRes = await fetch(absSecond, {
-        headers: { 'Cookie': cookies, 'User-Agent': 'MyGCEK/1.0' },
-      });
-      const finalCookies = parseCookies(finalRes.headers.get('set-cookie'));
-      if (finalCookies) cookies = mergeCookies(cookies, finalCookies);
-      dashHtml = await finalRes.text();
-    } else {
-      dashHtml = await dashRes.text();
-    }
-
-    const studentId = extractStudentId(dashHtml) || '';
-    return { success: true, cookies, studentId };
+  // If the returned page is the login page, then authentication failed.
+  if (responseHtml.includes('LoginForm[username]') || responseHtml.includes('LoginForm[password]')) {
+    return {
+      success: false,
+      cookies: '',
+      studentId: '',
+      error: extractLoginError(responseHtml),
+    };
   }
 
-  // 200 = login page returned again with error
-  const responseHtml = await loginRes.text();
+  // Otherwise, we succeeded and followed redirect to the dashboard.
+  const studentId = extractStudentId(responseHtml) || '';
   return {
-    success: false,
-    cookies: '',
-    studentId: '',
-    error: extractLoginError(responseHtml),
+    success: true,
+    cookies,
+    studentId,
   };
 }
 
