@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import {
   StyleSheet,
   View,
@@ -6,38 +6,76 @@ import {
   ScrollView,
   SafeAreaView,
   TouchableOpacity,
-  Animated,
+  ActivityIndicator,
+  RefreshControl,
 } from 'react-native';
 import { ProtectedScreen } from '@/components/protected-screen';
 import { ProfileButton } from '@/components/profile-button';
 import { Colors, Fonts, Spacing, Roundness } from '@/constants/theme';
 import { useColorScheme } from 'react-native';
+import { useLogin } from '@/components/login-context';
+import { fetchResults } from '@/services/etlab-api';
+import { parseResults, SubjectResult, ResultEntry } from '@/services/etlab-parser';
 
-const SERIES_ITEMS = [
-  { label: 'Assessment', title: 'Series 1' },
-  { label: 'Assessment', title: 'Series 2' },
-  { label: 'Assessment', title: 'Series 3' },
-  { label: 'Assessment', title: 'Series 4' },
-];
-
-interface CategoryCardProps {
-  emoji: string;
-  title: string;
-  iconBg: string;
+interface SubjectResultCardProps {
+  subject: string;
+  results: ResultEntry[];
   colors: any;
 }
 
-function CategoryCard({ emoji, title, iconBg, colors }: CategoryCardProps) {
+function SubjectResultCard({ subject, results, colors }: SubjectResultCardProps) {
+  const [expanded, setExpanded] = useState(false);
+
+  // Compute overall percentage
+  const totalObtained = results.reduce((sum, r) => sum + r.marks, 0);
+  const totalPossible = results.reduce((sum, r) => sum + r.total, 0);
+  const percentage = totalPossible > 0 ? Math.round((totalObtained / totalPossible) * 100) : 0;
+
   return (
-    <TouchableOpacity
-      style={[styles.categoryCard, { backgroundColor: colors.surfaceLowest, borderColor: colors.outlineVariant }]}
-      activeOpacity={0.7}
-    >
-      <View style={[styles.iconCircle, { backgroundColor: iconBg }]}>
-        <Text style={styles.iconEmoji}>{emoji}</Text>
-      </View>
-      <Text style={[styles.categoryTitle, { color: colors.text }]}>{title}</Text>
-    </TouchableOpacity>
+    <View style={[styles.subjectCard, { backgroundColor: colors.surfaceLowest, borderColor: colors.outlineVariant }]}>
+      <TouchableOpacity
+        style={styles.cardHeader}
+        onPress={() => setExpanded(!expanded)}
+        activeOpacity={0.7}
+      >
+        <View style={styles.cardLeft}>
+          <View style={[styles.iconCircle, { backgroundColor: 'rgba(9, 76, 178, 0.08)' }]}>
+            <Text style={styles.iconEmoji}>📚</Text>
+          </View>
+          <View style={styles.cardHeaderText}>
+            <Text style={[styles.subjectTitle, { color: colors.text }]} numberOfLines={1} ellipsizeMode="tail">
+              {subject}
+            </Text>
+            <Text style={[styles.subjectSubtitle, { color: colors.textSecondary }]}>
+              {results.length} assessment{results.length > 1 ? 's' : ''}
+            </Text>
+          </View>
+        </View>
+        <View style={styles.cardRight}>
+          <Text style={[styles.percentageText, { color: colors.primary }]}>{percentage}%</Text>
+          <Text style={[styles.chevronText, { color: colors.textSecondary }]}>{expanded ? '▲' : '▼'}</Text>
+        </View>
+      </TouchableOpacity>
+
+      {expanded && (
+        <View style={styles.cardContent}>
+          <View style={[styles.divider, { backgroundColor: colors.outlineVariant }]} />
+          {results.map((res, idx) => (
+            <View key={idx} style={styles.resultRow}>
+              <View style={styles.resultInfo}>
+                <Text style={[styles.examName, { color: colors.text }]}>{res.name}</Text>
+                {res.grade ? (
+                  <Text style={[styles.gradeText, { color: colors.textSecondary }]}>Grade: {res.grade}</Text>
+                ) : null}
+              </View>
+              <Text style={[styles.marksText, { color: colors.text }]}>
+                {res.marks} <Text style={{ color: colors.textSecondary, fontSize: 12 }}>/ {res.total}</Text>
+              </Text>
+            </View>
+          ))}
+        </View>
+      )}
+    </View>
   );
 }
 
@@ -45,134 +83,98 @@ export default function ResultScreen() {
   const colorScheme = useColorScheme();
   const scheme = colorScheme === 'dark' ? 'dark' : 'light';
   const colors = Colors[scheme];
-  const [seriesExpanded, setSeriesExpanded] = useState(false);
-  const animHeight = useRef(new Animated.Value(0)).current;
-  const animRotation = useRef(new Animated.Value(0)).current;
 
-  const toggleSeries = () => {
-    const toValue = seriesExpanded ? 0 : 1;
-    Animated.parallel([
-      Animated.timing(animHeight, {
-        toValue,
-        duration: 280,
-        useNativeDriver: false,
-      }),
-      Animated.timing(animRotation, {
-        toValue,
-        duration: 280,
-        useNativeDriver: true,
-      }),
-    ]).start();
-    setSeriesExpanded(!seriesExpanded);
-  };
+  const { sessionCookies, handleSessionExpired } = useLogin();
+  const [subjectResults, setSubjectResults] = useState<SubjectResult[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [errorMsg, setErrorMsg] = useState('');
 
-  const maxHeight = animHeight.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0, 280],
-  });
+  const loadData = useCallback(async (showRefreshingSpinner = false) => {
+    if (showRefreshingSpinner) {
+      setIsRefreshing(true);
+    } else {
+      setIsLoading(true);
+    }
+    setErrorMsg('');
 
-  const chevronRotation = animRotation.interpolate({
-    inputRange: [0, 1],
-    outputRange: ['0deg', '180deg'],
-  });
+    try {
+      const res = await fetchResults(sessionCookies);
+      if (res.sessionExpired) {
+        handleSessionExpired();
+        return;
+      }
+      if (!res.ok) {
+        throw new Error('Failed to retrieve academic records from ETLAB.');
+      }
+      const data = parseResults(res.html);
+      setSubjectResults(data);
+    } catch (err: any) {
+      setErrorMsg(err.message || 'An error occurred while loading results.');
+    } finally {
+      setIsLoading(false);
+      setIsRefreshing(false);
+    }
+  }, [sessionCookies, handleSessionExpired]);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
 
   return (
     <ProtectedScreen>
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
-      {/* Header bar */}
-      <View style={[styles.topBar, { borderBottomColor: colors.surfaceContainer }]}>
-        <View>
-          <Text style={[styles.topBarSub, { color: colors.textSecondary }]}>ACADEMIC RECORDS</Text>
-          <Text style={[styles.topBarTitle, { color: colors.text }]}>Results</Text>
-        </View>
-        <ProfileButton />
-      </View>
-
-      <ScrollView contentContainerStyle={styles.scrollContainer} showsVerticalScrollIndicator={false}>
-        {/* Page heading */}
-        <View style={styles.pageHeader}>
-          <Text style={[styles.pageTitle, { color: colors.text }]}>Academic Records</Text>
-          <Text style={[styles.pageSubtitle, { color: colors.textSecondary }]}>
-            A comprehensive ledger of your scholarly assessments and evaluations.
-          </Text>
+      <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+        {/* Header bar */}
+        <View style={[styles.topBar, { borderBottomColor: colors.surfaceContainer }]}>
+          <View>
+            <Text style={[styles.topBarSub, { color: colors.textSecondary }]}>ACADEMIC RECORDS</Text>
+            <Text style={[styles.topBarTitle, { color: colors.text }]}>Results</Text>
+          </View>
+          <ProfileButton />
         </View>
 
-        {/* ── Series Card (Expandable) ── */}
-        <View
-          style={[
-            styles.seriesCard,
-            {
-              backgroundColor: colors.surfaceLowest,
-              borderColor: colors.outlineVariant,
-            },
-          ]}
-        >
-          <TouchableOpacity
-            style={styles.seriesHeader}
-            onPress={toggleSeries}
-            activeOpacity={0.7}
+        {isLoading ? (
+          <View style={styles.centerContainer}>
+            <ActivityIndicator size="large" color={colors.primary} />
+            <Text style={[styles.loadingText, { color: colors.textSecondary }]}>Loading records...</Text>
+          </View>
+        ) : errorMsg ? (
+          <View style={styles.centerContainer}>
+            <Text style={styles.errorIcon}>⚠️</Text>
+            <Text style={[styles.errorText, { color: colors.text }]}>{errorMsg}</Text>
+            <TouchableOpacity style={[styles.retryButton, { backgroundColor: colors.primary }]} onPress={() => loadData()}>
+              <Text style={styles.retryButtonText}>Retry</Text>
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <ScrollView
+            contentContainerStyle={styles.scrollContainer}
+            showsVerticalScrollIndicator={false}
+            refreshControl={
+              <RefreshControl refreshing={isRefreshing} onRefresh={() => loadData(true)} tintColor={colors.primary} />
+            }
           >
-            <View style={styles.seriesLeft}>
-              <View style={[styles.iconCircle, { backgroundColor: 'rgba(9, 76, 178, 0.08)' }]}>
-                <Text style={styles.iconEmoji}>📚</Text>
+            {/* Page heading */}
+            <View style={styles.pageHeader}>
+              <Text style={[styles.pageTitle, { color: colors.text }]}>Academic Records</Text>
+              <Text style={[styles.pageSubtitle, { color: colors.textSecondary }]}>
+                A comprehensive ledger of your scholarly assessments and evaluations.
+              </Text>
+            </View>
+
+            {/* Subject Results list */}
+            {subjectResults.length === 0 ? (
+              <View style={[styles.subjectCard, { backgroundColor: colors.surfaceLowest, borderColor: colors.outlineVariant, alignItems: 'center', paddingVertical: Spacing.six }]}>
+                <Text style={[styles.infoText, { color: colors.textSecondary }]}>No exam or internal results found.</Text>
               </View>
-              <Text style={[styles.categoryTitle, { color: colors.text }]}>Series</Text>
-            </View>
-            <Animated.View style={{ transform: [{ rotate: chevronRotation }] }}>
-              <Text style={[styles.chevronText, { color: colors.textSecondary }]}>▾</Text>
-            </Animated.View>
-          </TouchableOpacity>
-
-          {/* Animated expandable grid */}
-          <Animated.View style={[styles.seriesContentWrapper, { maxHeight }]}>
-            <View style={[styles.seriesDivider, { backgroundColor: colors.surfaceContainer }]} />
-            <View style={styles.seriesGrid}>
-              {SERIES_ITEMS.map((item, idx) => (
-                <TouchableOpacity
-                  key={idx}
-                  style={[styles.seriesGridItem, { backgroundColor: colors.surfaceLow }]}
-                  activeOpacity={0.7}
-                >
-                  <Text style={[styles.seriesItemLabel, { color: colors.textSecondary }]}>
-                    {item.label.toUpperCase()}
-                  </Text>
-                  <Text style={[styles.seriesItemTitle, { color: colors.text }]}>{item.title}</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          </Animated.View>
-        </View>
-
-        {/* ── Other Category Cards ── */}
-        <CategoryCard
-          emoji="✅"
-          title="Internal"
-          iconBg={colors.surfaceHigh}
-          colors={colors}
-        />
-
-        <CategoryCard
-          emoji="📋"
-          title="Assignment"
-          iconBg="rgba(109, 94, 0, 0.08)"
-          colors={colors}
-        />
-
-        <CategoryCard
-          emoji="📖"
-          title="Tutorials"
-          iconBg="rgba(9, 76, 178, 0.08)"
-          colors={colors}
-        />
-
-        <CategoryCard
-          emoji="🏛️"
-          title="University"
-          iconBg={colors.surfaceContainer}
-          colors={colors}
-        />
-      </ScrollView>
-    </SafeAreaView>
+            ) : (
+              subjectResults.map((item, idx) => (
+                <SubjectResultCard key={idx} subject={item.subject} results={item.results} colors={colors} />
+              ))
+            )}
+          </ScrollView>
+        )}
+      </SafeAreaView>
     </ProtectedScreen>
   );
 }
@@ -236,8 +238,8 @@ const styles = StyleSheet.create({
     lineHeight: 22,
   },
 
-  /* ── Series Card ── */
-  seriesCard: {
+  /* ── Subject Result Card ── */
+  subjectCard: {
     borderRadius: Roundness.md,
     borderWidth: 1,
     overflow: 'hidden',
@@ -247,80 +249,122 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 1,
   },
-  seriesHeader: {
+  cardHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     padding: Spacing.three,
   },
-  seriesLeft: {
+  cardLeft: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: Spacing.three,
+    flex: 1,
   },
-  chevronText: {
-    fontSize: 22,
-    lineHeight: 26,
+  cardHeaderText: {
+    flex: 1,
+    gap: 2,
+  },
+  subjectTitle: {
+    fontFamily: Fonts.headlineBold,
+    fontSize: 16,
+  },
+  subjectSubtitle: {
     fontFamily: Fonts.body,
+    fontSize: 12,
   },
-  seriesContentWrapper: {
-    overflow: 'hidden',
-  },
-  seriesDivider: {
-    height: 1,
-    marginHorizontal: Spacing.three,
-  },
-  seriesGrid: {
+  cardRight: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    padding: Spacing.three,
+    alignItems: 'center',
     gap: Spacing.two,
   },
-  seriesGridItem: {
-    flex: 1,
-    minWidth: '45%',
-    padding: Spacing.three,
-    borderRadius: Roundness.default,
-    gap: 4,
+  percentageText: {
+    fontFamily: Fonts.headlineBold,
+    fontSize: 16,
   },
-  seriesItemLabel: {
-    fontFamily: Fonts.label,
-    fontSize: 9,
-    letterSpacing: 1.5,
-    textTransform: 'uppercase',
+  chevronText: {
+    fontSize: 18,
+    fontFamily: Fonts.body,
   },
-  seriesItemTitle: {
-    fontFamily: Fonts.headline,
-    fontSize: 17,
-    marginTop: 2,
+  cardContent: {
+    paddingBottom: Spacing.three,
+    paddingHorizontal: Spacing.three,
   },
-
-  /* ── Category Card ── */
-  categoryCard: {
+  divider: {
+    height: 1,
+    marginBottom: Spacing.two,
+  },
+  resultRow: {
     flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    gap: Spacing.three,
-    padding: Spacing.three,
-    borderRadius: Roundness.md,
-    borderWidth: 1,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.04,
-    shadowRadius: 4,
-    elevation: 1,
+    paddingVertical: Spacing.two,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(195, 198, 213, 0.05)',
+  },
+  resultInfo: {
+    gap: 2,
+  },
+  examName: {
+    fontFamily: Fonts.bodyMedium,
+    fontSize: 14,
+  },
+  gradeText: {
+    fontFamily: Fonts.body,
+    fontSize: 11,
+  },
+  marksText: {
+    fontFamily: Fonts.bodyBold,
+    fontSize: 14,
   },
   iconCircle: {
-    width: 48,
-    height: 48,
+    width: 44,
+    height: 44,
     borderRadius: Roundness.full,
     justifyContent: 'center',
     alignItems: 'center',
   },
   iconEmoji: {
-    fontSize: 22,
+    fontSize: 20,
   },
-  categoryTitle: {
-    fontFamily: Fonts.headlineBold,
-    fontSize: 18,
+
+  /* ── States ── */
+  centerContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: Spacing.six,
+    gap: Spacing.two,
+  },
+  loadingText: {
+    fontFamily: Fonts.body,
+    fontSize: 14,
+    marginTop: Spacing.two,
+  },
+  errorIcon: {
+    fontSize: 48,
+    marginBottom: Spacing.two,
+  },
+  errorText: {
+    fontFamily: Fonts.body,
+    fontSize: 14,
+    textAlign: 'center',
+    marginBottom: Spacing.three,
+  },
+  retryButton: {
+    paddingHorizontal: Spacing.four,
+    paddingVertical: Spacing.two,
+    borderRadius: Roundness.md,
+  },
+  retryButtonText: {
+    color: '#ffffff',
+    fontFamily: Fonts.bodyBold,
+    fontSize: 14,
+  },
+  infoText: {
+    fontFamily: Fonts.body,
+    fontSize: 12,
+    lineHeight: 18,
+    textAlign: 'center',
   },
 });

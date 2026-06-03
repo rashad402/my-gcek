@@ -1,52 +1,178 @@
-import React from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import {
   StyleSheet,
   View,
   Text,
   ScrollView,
   SafeAreaView,
+  TouchableOpacity,
+  ActivityIndicator,
+  RefreshControl,
+  Linking,
+  Alert,
 } from 'react-native';
 import { Colors, Fonts, Spacing, Roundness } from '@/constants/theme';
 import { useColorScheme } from 'react-native';
 import { ProtectedScreen } from '@/components/protected-screen';
 import { ProfileButton } from '@/components/profile-button';
+import { useLogin } from '@/components/login-context';
+import { fetchSurveys } from '@/services/etlab-api';
+import { parseSurveys, Survey, SurveyStatus } from '@/services/etlab-parser';
+
+interface SurveyCardProps {
+  survey: Survey;
+  colors: any;
+}
+
+function SurveyCard({ survey, colors }: SurveyCardProps) {
+  const { title, description, deadline, status, url } = survey;
+
+  // Determine badge colors based on status
+  let badgeBg = 'rgba(90, 95, 99, 0.08)';
+  let badgeText = colors.secondary;
+  let label = 'Unknown';
+
+  if (status === 'completed') {
+    badgeBg = 'rgba(40, 167, 69, 0.08)';
+    badgeText = '#28a745';
+    label = 'Completed';
+  } else if (status === 'pending') {
+    badgeBg = 'rgba(217, 119, 6, 0.08)';
+    badgeText = '#d97706'; // orange
+    label = 'Pending';
+  } else if (status === 'new') {
+    badgeBg = 'rgba(9, 76, 178, 0.08)';
+    badgeText = colors.primary;
+    label = 'New';
+  }
+
+  const handlePress = () => {
+    if (url) {
+      Linking.openURL(url).catch(() => {
+        Alert.alert('Error', 'Unable to open survey link.');
+      });
+    }
+  };
+
+  return (
+    <TouchableOpacity
+      style={[styles.surveyCard, { backgroundColor: colors.surfaceLowest, borderColor: colors.outlineVariant }]}
+      onPress={url ? handlePress : undefined}
+      activeOpacity={url ? 0.7 : 1}
+      disabled={!url}
+    >
+      <View style={styles.surveyHeader}>
+        <Text style={[styles.surveyTitle, { color: colors.text }]}>📋 {title}</Text>
+        <View style={[styles.statusBadge, { backgroundColor: badgeBg }]}>
+          <Text style={[styles.statusText, { color: badgeText }]}>{label}</Text>
+        </View>
+      </View>
+      {description ? <Text style={[styles.surveyDesc, { color: colors.textSecondary }]}>{description}</Text> : null}
+      {deadline ? <Text style={[styles.surveyMeta, { color: colors.textSecondary }]}>Deadline: {deadline}</Text> : null}
+      {url ? <Text style={[styles.linkHint, { color: colors.primary }]}>Tap to open survey ↗</Text> : null}
+    </TouchableOpacity>
+  );
+}
 
 export default function SurveyScreen() {
   const colorScheme = useColorScheme();
   const scheme = colorScheme === 'dark' ? 'dark' : 'light';
   const colors = Colors[scheme];
+
+  const { sessionCookies, handleSessionExpired } = useLogin();
+  const [surveys, setSurveys] = useState<Survey[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [errorMsg, setErrorMsg] = useState('');
+
+  const loadData = useCallback(async (showRefreshingSpinner = false) => {
+    if (showRefreshingSpinner) {
+      setIsRefreshing(true);
+    } else {
+      setIsLoading(true);
+    }
+    setErrorMsg('');
+
+    try {
+      const res = await fetchSurveys(sessionCookies);
+      if (res.sessionExpired) {
+        handleSessionExpired();
+        return;
+      }
+      if (!res.ok) {
+        throw new Error('Failed to retrieve surveys from ETLAB.');
+      }
+      const data = parseSurveys(res.html);
+      setSurveys(data);
+    } catch (err: any) {
+      setErrorMsg(err.message || 'An error occurred while loading surveys.');
+    } finally {
+      setIsLoading(false);
+      setIsRefreshing(false);
+    }
+  }, [sessionCookies, handleSessionExpired]);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
+
   return (
     <ProtectedScreen>
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
-      {/* Header */}
-      <View style={[styles.topBar, { borderBottomColor: colors.surfaceContainer }]}>
-        <View>
-          <Text style={[styles.topBarSub, { color: colors.textSecondary }]}>FEEDBACK</Text>
-          <Text style={[styles.topBarTitle, { color: colors.text }]}>Survey</Text>
-        </View>
-        <ProfileButton />
-      </View>
-
-      <ScrollView contentContainerStyle={styles.scrollContainer}>
-        {/* Placeholder content */}
-        <View style={[styles.placeholderCard, { backgroundColor: colors.surfaceContainer }]}>
-          <Text style={styles.placeholderEmoji}>📋</Text>
-          <Text style={[styles.placeholderTitle, { color: colors.text }]}>
-            Surveys Coming Soon
-          </Text>
-          <Text style={[styles.placeholderDesc, { color: colors.textSecondary }]}>
-            Faculty and course surveys will appear here when they become available for your semester.
-          </Text>
+      <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+        {/* Header */}
+        <View style={[styles.topBar, { borderBottomColor: colors.surfaceContainer }]}>
+          <View>
+            <Text style={[styles.topBarSub, { color: colors.textSecondary }]}>FEEDBACK</Text>
+            <Text style={[styles.topBarTitle, { color: colors.text }]}>Surveys</Text>
+          </View>
+          <ProfileButton />
         </View>
 
-        {/* Info card */}
-        <View style={[styles.infoCard, { backgroundColor: colors.surfaceContainer }]}>
-          <Text style={[styles.infoText, { color: colors.textSecondary }]}>
-            ℹ️ Surveys are typically available during the last two weeks of each semester. Your responses are anonymous and help improve teaching quality.
-          </Text>
-        </View>
-      </ScrollView>
-    </SafeAreaView>
+        {isLoading ? (
+          <View style={styles.centerContainer}>
+            <ActivityIndicator size="large" color={colors.primary} />
+            <Text style={[styles.loadingText, { color: colors.textSecondary }]}>Loading surveys...</Text>
+          </View>
+        ) : errorMsg ? (
+          <View style={styles.centerContainer}>
+            <Text style={styles.errorIcon}>⚠️</Text>
+            <Text style={[styles.errorText, { color: colors.text }]}>{errorMsg}</Text>
+            <TouchableOpacity style={[styles.retryButton, { backgroundColor: colors.primary }]} onPress={() => loadData()}>
+              <Text style={styles.retryButtonText}>Retry</Text>
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <ScrollView
+            contentContainerStyle={styles.scrollContainer}
+            refreshControl={
+              <RefreshControl refreshing={isRefreshing} onRefresh={() => loadData(true)} tintColor={colors.primary} />
+            }
+          >
+            {surveys.length === 0 ? (
+              <View style={[styles.placeholderCard, { backgroundColor: colors.surfaceContainer }]}>
+                <Text style={styles.placeholderEmoji}>📋</Text>
+                <Text style={[styles.placeholderTitle, { color: colors.text }]}>
+                  No Surveys Found
+                </Text>
+                <Text style={[styles.placeholderDesc, { color: colors.textSecondary }]}>
+                  Faculty and course surveys will appear here when they become available for your semester.
+                </Text>
+              </View>
+            ) : (
+              surveys.map((item, idx) => (
+                <SurveyCard key={idx} survey={item} colors={colors} />
+              ))
+            )}
+
+            {/* Info card */}
+            <View style={[styles.infoCard, { backgroundColor: colors.surfaceContainer }]}>
+              <Text style={[styles.infoText, { color: colors.textSecondary }]}>
+                ℹ️ Surveys are typically available during the last two weeks of each semester. Your responses are anonymous and help improve teaching quality.
+              </Text>
+            </View>
+          </ScrollView>
+        )}
+      </SafeAreaView>
     </ProtectedScreen>
   );
 }
@@ -118,5 +244,80 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 18,
     textAlign: 'center',
+  },
+  surveyCard: {
+    padding: Spacing.three,
+    borderRadius: Roundness.default,
+    borderWidth: 1,
+    gap: Spacing.one,
+  },
+  surveyHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  surveyTitle: {
+    fontFamily: Fonts.headlineBold,
+    fontSize: 15,
+    flex: 1,
+  },
+  statusBadge: {
+    paddingHorizontal: Spacing.two,
+    paddingVertical: 4,
+    borderRadius: Roundness.sm,
+  },
+  statusText: {
+    fontFamily: Fonts.label,
+    fontSize: 10,
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+  },
+  surveyDesc: {
+    fontFamily: Fonts.body,
+    fontSize: 13,
+    marginTop: 2,
+  },
+  surveyMeta: {
+    fontFamily: Fonts.body,
+    fontSize: 12,
+    fontStyle: 'italic',
+    marginTop: 4,
+  },
+  linkHint: {
+    fontFamily: Fonts.bodyBold,
+    fontSize: 12,
+    marginTop: Spacing.one,
+  },
+  centerContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: Spacing.six,
+    gap: Spacing.two,
+  },
+  loadingText: {
+    fontFamily: Fonts.body,
+    fontSize: 14,
+    marginTop: Spacing.two,
+  },
+  errorIcon: {
+    fontSize: 48,
+    marginBottom: Spacing.two,
+  },
+  errorText: {
+    fontFamily: Fonts.body,
+    fontSize: 14,
+    textAlign: 'center',
+    marginBottom: Spacing.three,
+  },
+  retryButton: {
+    paddingHorizontal: Spacing.four,
+    paddingVertical: Spacing.two,
+    borderRadius: Roundness.md,
+  },
+  retryButtonText: {
+    color: '#ffffff',
+    fontFamily: Fonts.bodyBold,
+    fontSize: 14,
   },
 });

@@ -10,6 +10,7 @@ import {
   ScrollView,
   SafeAreaView,
   Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { useLogin } from './login-context';
 import { Colors, Fonts, Spacing, Roundness } from '@/constants/theme';
@@ -26,6 +27,7 @@ export default function LoginScreen() {
   const [passwordInput, setPasswordInput] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [keepLoggedIn, setKeepLoggedIn] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
 
   const handleSignIn = async () => {
     const trimmedUser = usernameInput.trim();
@@ -36,17 +38,16 @@ export default function LoginScreen() {
       return;
     }
 
-    // Dummy Credentials Verification
-    if (
-      (trimmedUser.toLowerCase() === 'admin' && trimmedPass === 'password') ||
-      (trimmedUser.toUpperCase() === 'GCEK2026' && trimmedPass === 'password')
-    ) {
-      await login(trimmedUser, keepLoggedIn);
-    } else {
-      Alert.alert(
-        'Invalid Credentials',
-        'Use the test credentials:\nID: admin  or  GCEK2026\nPassword: password'
-      );
+    setIsLoading(true);
+    try {
+      const res = await login(trimmedUser, trimmedPass, keepLoggedIn);
+      if (!res.success) {
+        Alert.alert('Login Failed', res.error || 'Invalid credentials. Please try again.');
+      }
+    } catch (err: any) {
+      Alert.alert('Error', err.message || 'An unexpected error occurred.');
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -76,11 +77,12 @@ export default function LoginScreen() {
                   <Text style={styles.inputIcon}>👤</Text>
                   <TextInput
                     style={[styles.input, { color: colors.text }]}
-                    placeholder="Enter your ID (e.g. admin)"
+                    placeholder="Enter your ETLAB ID"
                     placeholderTextColor={colors.outline}
                     value={usernameInput}
                     onChangeText={setUsernameInput}
                     autoCapitalize="none"
+                    editable={!isLoading}
                   />
                 </View>
               </View>
@@ -92,16 +94,18 @@ export default function LoginScreen() {
                   <Text style={styles.inputIcon}>🔑</Text>
                   <TextInput
                     style={[styles.input, { color: colors.text }]}
-                    placeholder="Enter password (e.g. password)"
+                    placeholder="Enter password"
                     placeholderTextColor={colors.outline}
                     value={passwordInput}
                     onChangeText={setPasswordInput}
                     secureTextEntry={!showPassword}
                     autoCapitalize="none"
+                    editable={!isLoading}
                   />
                   <TouchableOpacity
                     onPress={() => setShowPassword(!showPassword)}
                     style={styles.eyeButton}
+                    disabled={isLoading}
                   >
                     <Text style={styles.eyeText}>{showPassword ? '👁️' : '🕶️'}</Text>
                   </TouchableOpacity>
@@ -112,6 +116,7 @@ export default function LoginScreen() {
               <TouchableOpacity
                 style={styles.checkboxRow}
                 onPress={() => setKeepLoggedIn(!keepLoggedIn)}
+                disabled={isLoading}
               >
                 <View
                   style={[
@@ -131,32 +136,28 @@ export default function LoginScreen() {
 
               {/* Sign In Button */}
               <TouchableOpacity
-                style={[styles.button, { backgroundColor: colors.primary }]}
+                style={[
+                  styles.button,
+                  { backgroundColor: colors.primary },
+                  isLoading && { opacity: 0.7 }
+                ]}
                 onPress={handleSignIn}
                 activeOpacity={0.8}
+                disabled={isLoading}
               >
-                <Text style={styles.buttonText}>Sign In  →</Text>
+                {isLoading ? (
+                  <ActivityIndicator size="small" color="#ffffff" />
+                ) : (
+                  <Text style={styles.buttonText}>Sign In  →</Text>
+                )}
               </TouchableOpacity>
-            </View>
-
-            {/* Test Credentials Hint */}
-            <View style={[styles.hintCard, { backgroundColor: colors.surfaceContainer }]}>
-              <Text style={[styles.hintTitle, { color: colors.primary }]}>🔑 Test Credentials</Text>
-              <Text style={[styles.hintText, { color: colors.textSecondary }]}>
-                University ID: <Text style={styles.boldText}>admin</Text> or <Text style={styles.boldText}>GCEK2026</Text>
-              </Text>
-              <Text style={[styles.hintText, { color: colors.textSecondary }]}>
-                Password: <Text style={styles.boldText}>password</Text>
-              </Text>
             </View>
 
             {/* Footer */}
             <View style={styles.footer}>
-              <TouchableOpacity>
-                <Text style={[styles.footerLink, { color: colors.text, borderBottomColor: colors.outlineVariant }]}>
-                  Forgot Password?
-                </Text>
-              </TouchableOpacity>
+              <Text style={[styles.footerLink, { color: colors.textSecondary }]}>
+                Government College of Engineering, Kannur
+              </Text>
             </View>
           </View>
         </ScrollView>

@@ -1,66 +1,155 @@
-import React from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import {
   StyleSheet,
   View,
   Text,
   ScrollView,
   SafeAreaView,
+  TouchableOpacity,
+  ActivityIndicator,
+  RefreshControl,
 } from 'react-native';
 import { Colors, Fonts, Spacing, Roundness } from '@/constants/theme';
 import { useColorScheme } from 'react-native';
 import { ProtectedScreen } from '@/components/protected-screen';
 import { ProfileButton } from '@/components/profile-button';
+import { useLogin } from '@/components/login-context';
+import { fetchAssignments } from '@/services/etlab-api';
+import { parseAssignments, Assignment, AssignmentStatus } from '@/services/etlab-parser';
+
+interface AssignmentCardProps {
+  assignment: Assignment;
+  colors: any;
+}
+
+function AssignmentCard({ assignment, colors }: AssignmentCardProps) {
+  const { title, subject, dueDate, status } = assignment;
+
+  // Determine badge colors based on status
+  let badgeBg = 'rgba(90, 95, 99, 0.08)';
+  let badgeText = colors.secondary;
+  let label = 'Unknown';
+
+  if (status === 'submitted') {
+    badgeBg = 'rgba(40, 167, 69, 0.08)';
+    badgeText = '#28a745';
+    label = 'Submitted';
+  } else if (status === 'pending') {
+    badgeBg = 'rgba(9, 76, 178, 0.08)';
+    badgeText = colors.primary;
+    label = 'Pending';
+  } else if (status === 'overdue') {
+    badgeBg = 'rgba(186, 26, 26, 0.08)';
+    badgeText = colors.error;
+    label = 'Overdue';
+  }
+
+  return (
+    <View style={[styles.assignCard, { backgroundColor: colors.surfaceLowest, borderColor: colors.outlineVariant }]}>
+      <View style={styles.assignHeader}>
+        <Text style={[styles.assignTitle, { color: colors.text }]}>📖 {title}</Text>
+        <View style={[styles.statusBadge, { backgroundColor: badgeBg }]}>
+          <Text style={[styles.statusText, { color: badgeText }]}>{label}</Text>
+        </View>
+      </View>
+      {subject ? <Text style={[styles.assignSubject, { color: colors.textSecondary }]}>Course: {subject}</Text> : null}
+      <Text style={[styles.assignMeta, { color: colors.textSecondary }]}>Due: {dueDate}</Text>
+    </View>
+  );
+}
 
 export default function AssignmentScreen() {
   const colorScheme = useColorScheme();
   const scheme = colorScheme === 'dark' ? 'dark' : 'light';
   const colors = Colors[scheme];
+
+  const { sessionCookies, handleSessionExpired } = useLogin();
+  const [assignments, setAssignments] = useState<Assignment[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [errorMsg, setErrorMsg] = useState('');
+
+  const loadData = useCallback(async (showRefreshingSpinner = false) => {
+    if (showRefreshingSpinner) {
+      setIsRefreshing(true);
+    } else {
+      setIsLoading(true);
+    }
+    setErrorMsg('');
+
+    try {
+      const res = await fetchAssignments(sessionCookies);
+      if (res.sessionExpired) {
+        handleSessionExpired();
+        return;
+      }
+      if (!res.ok) {
+        throw new Error('Failed to retrieve coursework from ETLAB.');
+      }
+      const data = parseAssignments(res.html);
+      setAssignments(data);
+    } catch (err: any) {
+      setErrorMsg(err.message || 'An error occurred while loading assignments.');
+    } finally {
+      setIsLoading(false);
+      setIsRefreshing(false);
+    }
+  }, [sessionCookies, handleSessionExpired]);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
+
   return (
     <ProtectedScreen>
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
-      {/* Header */}
-      <View style={[styles.topBar, { borderBottomColor: colors.surfaceContainer }]}>
-        <View>
-          <Text style={[styles.topBarSub, { color: colors.textSecondary }]}>COURSEWORK</Text>
-          <Text style={[styles.topBarTitle, { color: colors.text }]}>Assignments</Text>
-        </View>
-        <ProfileButton />
-      </View>
-
-      <ScrollView contentContainerStyle={styles.scrollContainer}>
-        {/* Placeholder content */}
-        <View style={[styles.placeholderCard, { backgroundColor: colors.surfaceContainer }]}>
-          <Text style={styles.placeholderEmoji}>📝</Text>
-          <Text style={[styles.placeholderTitle, { color: colors.text }]}>
-            Assignments Coming Soon
-          </Text>
-          <Text style={[styles.placeholderDesc, { color: colors.textSecondary }]}>
-            Your pending and submitted assignments will appear here once the module is activated.
-          </Text>
-        </View>
-
-        {/* Mock assignment cards */}
-        <View style={[styles.assignCard, { backgroundColor: colors.surfaceLowest, borderColor: colors.outlineVariant }]}>
-          <View style={styles.assignHeader}>
-            <Text style={[styles.assignTitle, { color: colors.text }]}>📖 Literature Essay</Text>
-            <View style={[styles.statusBadge, { backgroundColor: 'rgba(9, 76, 178, 0.08)' }]}>
-              <Text style={[styles.statusText, { color: colors.primary }]}>Pending</Text>
-            </View>
+      <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+        {/* Header */}
+        <View style={[styles.topBar, { borderBottomColor: colors.surfaceContainer }]}>
+          <View>
+            <Text style={[styles.topBarSub, { color: colors.textSecondary }]}>COURSEWORK</Text>
+            <Text style={[styles.topBarTitle, { color: colors.text }]}>Assignments</Text>
           </View>
-          <Text style={[styles.assignMeta, { color: colors.textSecondary }]}>Due: To be announced</Text>
+          <ProfileButton />
         </View>
 
-        <View style={[styles.assignCard, { backgroundColor: colors.surfaceLowest, borderColor: colors.outlineVariant }]}>
-          <View style={styles.assignHeader}>
-            <Text style={[styles.assignTitle, { color: colors.text }]}>🏛 Philosophy Report</Text>
-            <View style={[styles.statusBadge, { backgroundColor: 'rgba(9, 76, 178, 0.08)' }]}>
-              <Text style={[styles.statusText, { color: colors.primary }]}>Pending</Text>
-            </View>
+        {isLoading ? (
+          <View style={styles.centerContainer}>
+            <ActivityIndicator size="large" color={colors.primary} />
+            <Text style={[styles.loadingText, { color: colors.textSecondary }]}>Loading coursework...</Text>
           </View>
-          <Text style={[styles.assignMeta, { color: colors.textSecondary }]}>Due: To be announced</Text>
-        </View>
-      </ScrollView>
-    </SafeAreaView>
+        ) : errorMsg ? (
+          <View style={styles.centerContainer}>
+            <Text style={styles.errorIcon}>⚠️</Text>
+            <Text style={[styles.errorText, { color: colors.text }]}>{errorMsg}</Text>
+            <TouchableOpacity style={[styles.retryButton, { backgroundColor: colors.primary }]} onPress={() => loadData()}>
+              <Text style={styles.retryButtonText}>Retry</Text>
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <ScrollView
+            contentContainerStyle={styles.scrollContainer}
+            refreshControl={
+              <RefreshControl refreshing={isRefreshing} onRefresh={() => loadData(true)} tintColor={colors.primary} />
+            }
+          >
+            {assignments.length === 0 ? (
+              <View style={[styles.placeholderCard, { backgroundColor: colors.surfaceContainer }]}>
+                <Text style={styles.placeholderEmoji}>📝</Text>
+                <Text style={[styles.placeholderTitle, { color: colors.text }]}>
+                  No Assignments Found
+                </Text>
+                <Text style={[styles.placeholderDesc, { color: colors.textSecondary }]}>
+                  You have no pending or completed assignments recorded on ETLAB.
+                </Text>
+              </View>
+            ) : (
+              assignments.map((item, idx) => (
+                <AssignmentCard key={idx} assignment={item} colors={colors} />
+              ))
+            )}
+          </ScrollView>
+        )}
+      </SafeAreaView>
     </ProtectedScreen>
   );
 }
@@ -155,5 +244,42 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontStyle: 'italic',
     marginTop: 4,
+  },
+  assignSubject: {
+    fontFamily: Fonts.bodyMedium,
+    fontSize: 13,
+    marginTop: 2,
+  },
+  centerContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: Spacing.six,
+    gap: Spacing.two,
+  },
+  loadingText: {
+    fontFamily: Fonts.body,
+    fontSize: 14,
+    marginTop: Spacing.two,
+  },
+  errorIcon: {
+    fontSize: 48,
+    marginBottom: Spacing.two,
+  },
+  errorText: {
+    fontFamily: Fonts.body,
+    fontSize: 14,
+    textAlign: 'center',
+    marginBottom: Spacing.three,
+  },
+  retryButton: {
+    paddingHorizontal: Spacing.four,
+    paddingVertical: Spacing.two,
+    borderRadius: Roundness.md,
+  },
+  retryButtonText: {
+    color: '#ffffff',
+    fontFamily: Fonts.bodyBold,
+    fontSize: 14,
   },
 });

@@ -1,29 +1,38 @@
-import React from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import {
   StyleSheet,
   View,
   Text,
   ScrollView,
   SafeAreaView,
+  RefreshControl,
+  ActivityIndicator,
+  TouchableOpacity,
 } from 'react-native';
 import { useLogin } from './login-context';
 import { ProfileButton } from './profile-button';
 import { Colors, Fonts, Spacing, Roundness } from '@/constants/theme';
 import { useColorScheme } from 'react-native';
+import { fetchAttendance } from '@/services/etlab-api';
+import { parseAttendance, SubjectAttendance } from '@/services/etlab-parser';
 
 interface SubjectCardProps {
-  title: string;
+  subject: string;
   professor: string;
   percentage: number;
+  attended: number;
+  total: number;
   alertText: string;
   alertType: 'success' | 'warning';
   colors: any;
 }
 
 function SubjectCard({
-  title,
+  subject,
   professor,
   percentage,
+  attended,
+  total,
   alertText,
   alertType,
   colors,
@@ -35,8 +44,12 @@ function SubjectCard({
     <View style={[styles.card, { backgroundColor: colors.surfaceLowest, borderColor: colors.outlineVariant }]}>
       <View style={styles.cardHeader}>
         <View style={styles.cardInfo}>
-          <Text style={[styles.cardTitle, { color: colors.text }]}>📖 {title}</Text>
-          <Text style={[styles.cardProf, { color: colors.textSecondary }]}>👤 {professor}</Text>
+          <Text style={[styles.cardTitle, { color: colors.text }]}>📖 {subject}</Text>
+          {professor ? (
+            <Text style={[styles.cardProf, { color: colors.textSecondary }]}>👤 {professor}</Text>
+          ) : (
+            <Text style={[styles.cardProf, { color: colors.textSecondary }]}>📊 Logged Hours: {attended}/{total}</Text>
+          )}
         </View>
         
         {/* Simple visual circle container */}
@@ -82,70 +95,148 @@ export default function AttendanceDashboard() {
   const scheme = colorScheme === 'dark' ? 'dark' : 'light';
   const colors = Colors[scheme];
 
-  const { username } = useLogin();
+  const { sessionCookies, studentId, handleSessionExpired } = useLogin();
 
-  const subjects: Omit<SubjectCardProps, 'colors'>[] = [
-    {
-      title: 'Advanced Literature',
-      professor: 'Prof. E. Sterling',
-      percentage: 95,
-      alertText: 'You can miss 4 classes.',
-      alertType: 'success',
-    },
-    {
-      title: 'Classical Philosophy',
-      professor: 'Dr. A. Vance',
-      percentage: 68,
-      alertText: 'Attend 3 more classes to reach 75%.',
-      alertType: 'warning',
-    },
-    {
-      title: 'Modern History',
-      professor: 'Prof. M. Rossi',
-      percentage: 100,
-      alertText: 'You can miss 6 classes.',
-      alertType: 'success',
-    },
-  ];
+  const [subjects, setSubjects] = useState<SubjectAttendance[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [errorMsg, setErrorMsg] = useState('');
+
+  const loadData = useCallback(async (showRefreshingSpinner = false) => {
+    if (showRefreshingSpinner) {
+      setIsRefreshing(true);
+    } else {
+      setIsLoading(true);
+    }
+    setErrorMsg('');
+
+    try {
+      const res = await fetchAttendance(sessionCookies, studentId);
+      if (res.sessionExpired) {
+        handleSessionExpired();
+        return;
+      }
+      if (!res.ok) {
+        throw new Error('Failed to retrieve attendance from ETLAB.');
+      }
+      const data = parseAttendance(res.html);
+      setSubjects(data);
+    } catch (err: any) {
+      setErrorMsg(err.message || 'An error occurred while loading attendance.');
+    } finally {
+      setIsLoading(false);
+      setIsRefreshing(false);
+    }
+  }, [sessionCookies, studentId, handleSessionExpired]);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
+
+  // Compute cumulative standing
+  const totalAttended = subjects.reduce((sum, s) => sum + s.attended, 0);
+  const totalHours = subjects.reduce((sum, s) => sum + s.total, 0);
+  const cumulative = totalHours > 0 ? Math.round((totalAttended / totalHours) * 1000) / 10 : 0;
+  const isCumulativeHigh = cumulative >= 75;
+
+  // Process subject alerts dynamically
+  const subjectsWithAlerts = subjects.map((subj) => {
+    let alertText = '';
+    let alertType: 'success' | 'warning' = 'success';
+
+    if (subj.total === 0) {
+      alertText = 'No classes held yet.';
+      alertType = 'success';
+    } else if (subj.percentage >= 75) {
+      // Safe: how many classes can the student miss?
+      // x <= (attended / 0.75) - total
+      const maxMissable = Math.floor(subj.attended / 0.75 - subj.total);
+      if (maxMissable <= 0) {
+        alertText = 'You cannot miss any more classes to stay above 75%.';
+        alertType = 'warning'; // critical warning even though currently >= 75%
+      } else {
+        alertText = `You can miss ${maxMissable} class${maxMissable > 1 ? 'es' : ''}.`;
+        alertType = 'success';
+      }
+    } else {
+      // Warning: how many consecutive classes to attend to reach 75%?
+      // y >= 3*total - 4*attended
+      const reqClasses = Math.max(1, 3 * subj.total - 4 * subj.attended);
+      alertText = `Attend ${reqClasses} more class${reqClasses > 1 ? 'es' : ''} to reach 75%.`;
+      alertType = 'warning';
+    }
+
+    return {
+      ...subj,
+      alertText,
+      alertType,
+    };
+  });
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
       {/* Header bar */}
       <View style={[styles.topBar, { borderBottomColor: colors.surfaceContainer }]}>
         <View>
-          <Text style={[styles.topBarSub, { color: colors.textSecondary }]}>FALL SEMESTER 2024</Text>
+          <Text style={[styles.topBarSub, { color: colors.textSecondary }]}>MyGCEK Student Portal</Text>
           <Text style={[styles.topBarTitle, { color: colors.text }]}>Attendance Overview</Text>
         </View>
         <ProfileButton />
       </View>
 
-      <ScrollView contentContainerStyle={styles.scrollContainer}>
-        {/* Cumulative Standing Header Card */}
-        <View style={[styles.cumulativeCard, { backgroundColor: colors.primary }]}>
-          <View>
-            <Text style={styles.cumulativeLabel}>CUMULATIVE STANDING</Text>
-            <Text style={styles.cumulativeValue}>92.4%</Text>
+      {isLoading ? (
+        <View style={styles.centerContainer}>
+          <ActivityIndicator size="large" color={colors.primary} />
+          <Text style={[styles.loadingText, { color: colors.textSecondary }]}>Loading attendance...</Text>
+        </View>
+      ) : errorMsg ? (
+        <View style={styles.centerContainer}>
+          <Text style={styles.errorIcon}>⚠️</Text>
+          <Text style={[styles.errorText, { color: colors.text }]}>{errorMsg}</Text>
+          <TouchableOpacity style={[styles.retryButton, { backgroundColor: colors.primary }]} onPress={() => loadData()}>
+            <Text style={styles.retryButtonText}>Retry</Text>
+          </TouchableOpacity>
+        </View>
+      ) : (
+        <ScrollView
+          contentContainerStyle={styles.scrollContainer}
+          refreshControl={
+            <RefreshControl refreshing={isRefreshing} onRefresh={() => loadData(true)} tintColor={colors.primary} />
+          }
+        >
+          {/* Cumulative Standing Header Card */}
+          <View style={[styles.cumulativeCard, { backgroundColor: isCumulativeHigh ? colors.primary : colors.error }]}>
+            <View>
+              <Text style={styles.cumulativeLabel}>CUMULATIVE STANDING</Text>
+              <Text style={styles.cumulativeValue}>{cumulative}%</Text>
+            </View>
+            <View style={styles.avatarCircle}>
+              <Text style={styles.avatarIcon}>🎓</Text>
+            </View>
           </View>
-          <View style={styles.avatarCircle}>
-            <Text style={styles.avatarIcon}>🎓</Text>
+
+          {/* Subjects list */}
+          <View style={styles.listSection}>
+            <Text style={[styles.sectionTitle, { color: colors.text }]}>Your Courses</Text>
+            {subjectsWithAlerts.length === 0 ? (
+              <View style={[styles.card, { backgroundColor: colors.surfaceLowest, borderColor: colors.outlineVariant, alignItems: 'center', paddingVertical: Spacing.six }]}>
+                <Text style={[styles.infoText, { color: colors.textSecondary }]}>No subjects or attendance data found.</Text>
+              </View>
+            ) : (
+              subjectsWithAlerts.map((subj, index) => (
+                <SubjectCard key={index} {...subj} colors={colors} />
+              ))
+            )}
           </View>
-        </View>
 
-        {/* Subjects list */}
-        <View style={styles.listSection}>
-          <Text style={[styles.sectionTitle, { color: colors.text }]}>Your Courses</Text>
-          {subjects.map((subj, index) => (
-            <SubjectCard key={index} {...subj} colors={colors} />
-          ))}
-        </View>
-
-        {/* Info card */}
-        <View style={[styles.infoCard, { backgroundColor: colors.surfaceContainer }]}>
-          <Text style={[styles.infoText, { color: colors.textSecondary }]}>
-            ℹ️ Attendance is updated every day at 5:00 PM. A minimum threshold of 75% is required to avoid penalty charges.
-          </Text>
-        </View>
-      </ScrollView>
+          {/* Info card */}
+          <View style={[styles.infoCard, { backgroundColor: colors.surfaceContainer }]}>
+            <Text style={[styles.infoText, { color: colors.textSecondary }]}>
+              ℹ️ Attendance is fetched directly from ETLAB GCEK. A minimum threshold of 75% is required for each subject to register for exams.
+            </Text>
+          </View>
+        </ScrollView>
+      )}
     </SafeAreaView>
   );
 }
@@ -297,5 +388,37 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 18,
     textAlign: 'center',
+  },
+  centerContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: Spacing.six,
+    gap: Spacing.two,
+  },
+  loadingText: {
+    fontFamily: Fonts.body,
+    fontSize: 14,
+    marginTop: Spacing.two,
+  },
+  errorIcon: {
+    fontSize: 48,
+    marginBottom: Spacing.two,
+  },
+  errorText: {
+    fontFamily: Fonts.body,
+    fontSize: 14,
+    textAlign: 'center',
+    marginBottom: Spacing.three,
+  },
+  retryButton: {
+    paddingHorizontal: Spacing.four,
+    paddingVertical: Spacing.two,
+    borderRadius: Roundness.md,
+  },
+  retryButtonText: {
+    color: '#ffffff',
+    fontFamily: Fonts.bodyBold,
+    fontSize: 14,
   },
 });
