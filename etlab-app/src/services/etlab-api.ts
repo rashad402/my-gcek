@@ -141,7 +141,6 @@ function extractLoginError(html: string): string {
 
 export interface LoginResult {
   success: boolean;
-  cookies: string;
   studentId: string;
   error?: string;
 }
@@ -149,9 +148,9 @@ export interface LoginResult {
 /**
  * Authenticate against ETLAB using the two-step CSRF login.
  *
- * 1. GET login page → extract CSRF token + session cookie
- * 2. POST credentials with token → check for 302 (success) vs 200 (failure)
- * 3. On success, follow redirect to dashboard and extract studentId
+ * 1. GET login page → extract CSRF token
+ * 2. POST credentials with token
+ * 3. On success, native cookie jar automatically captures authenticated GCEKSESSIONID
  *
  * The password parameter is used only within this function and is never
  * stored, logged, or returned.
@@ -169,7 +168,6 @@ export async function loginToEtlab(
   const loginPageHtml = await loginPageRes.text();
   const csrfToken = extractCsrfToken(loginPageHtml);
   const csrfFieldName = csrfToken ? extractCsrfFieldName(loginPageHtml) : '';
-  let cookies = parseCookies(loginPageRes.headers.get('set-cookie'));
 
   // ── Step 2: POST credentials ────────────────────────────────────────
   const formBody = new URLSearchParams();
@@ -184,17 +182,10 @@ export async function loginToEtlab(
     method: 'POST',
     headers: {
       'Content-Type': 'application/x-www-form-urlencoded',
-      'Cookie': cookies,
       'User-Agent': 'MyGCEK/1.0',
     },
     body: formBody.toString(),
   });
-
-  // Capture final response cookies
-  const postCookies = parseCookies(loginRes.headers.get('set-cookie'));
-  if (postCookies) {
-    cookies = mergeCookies(cookies, postCookies);
-  }
 
   const responseHtml = await loginRes.text();
 
@@ -203,7 +194,6 @@ export async function loginToEtlab(
   if (responseHtml.includes('LoginForm[username]') || responseHtml.includes('LoginForm[password]')) {
     return {
       success: false,
-      cookies: '',
       studentId: '',
       error: extractLoginError(responseHtml),
     };
@@ -213,7 +203,6 @@ export async function loginToEtlab(
   const studentId = extractStudentId(responseHtml) || '';
   return {
     success: true,
-    cookies,
     studentId,
   };
 }
@@ -225,10 +214,10 @@ export async function loginToEtlab(
  * request to a protected page. If the server redirects to the login page,
  * the session has expired.
  */
-export async function validateSession(cookies: string): Promise<boolean> {
+export async function validateSession(): Promise<boolean> {
   try {
     const res = await fetch(`${BASE_URL}/ktuacademics/student/results`, {
-      headers: { 'Cookie': cookies, 'User-Agent': 'MyGCEK/1.0' },
+      headers: { 'User-Agent': 'MyGCEK/1.0' },
       redirect: 'manual',
     });
     // Redirect to login = expired
@@ -258,9 +247,9 @@ export interface FetchPageResult {
  * Generic authenticated GET request. Returns the HTML body.
  * Detects session expiry (redirect to login page).
  */
-export async function fetchPage(url: string, cookies: string): Promise<FetchPageResult> {
+export async function fetchPage(url: string): Promise<FetchPageResult> {
   const res = await fetch(url, {
-    headers: { 'Cookie': cookies, 'User-Agent': 'MyGCEK/1.0' },
+    headers: { 'User-Agent': 'MyGCEK/1.0' },
     redirect: 'manual',
   });
 
@@ -273,7 +262,7 @@ export async function fetchPage(url: string, cookies: string): Promise<FetchPage
     // Non-login redirect — follow it
     const absUrl = location.startsWith('http') ? location : `${BASE_URL}${location}`;
     const followRes = await fetch(absUrl, {
-      headers: { 'Cookie': cookies, 'User-Agent': 'MyGCEK/1.0' },
+      headers: { 'User-Agent': 'MyGCEK/1.0' },
     });
     return { ok: true, html: await followRes.text(), sessionExpired: false };
   }
@@ -292,24 +281,23 @@ export async function fetchPage(url: string, cookies: string): Promise<FetchPage
 }
 
 /** Fetch the attendance page for a specific student. */
-export function fetchAttendance(cookies: string, studentId: string) {
+export function fetchAttendance(studentId: string) {
   return fetchPage(
-    `${BASE_URL}/ktuacademics/student/viewattendancesubject/${studentId}`,
-    cookies,
+    `${BASE_URL}/ktuacademics/student/viewattendancesubject/${studentId}`
   );
 }
 
 /** Fetch the results page. */
-export function fetchResults(cookies: string) {
-  return fetchPage(`${BASE_URL}/ktuacademics/student/results`, cookies);
+export function fetchResults() {
+  return fetchPage(`${BASE_URL}/ktuacademics/student/results`);
 }
 
 /** Fetch the assignments page. */
-export function fetchAssignments(cookies: string) {
-  return fetchPage(`${BASE_URL}/student/assignments`, cookies);
+export function fetchAssignments() {
+  return fetchPage(`${BASE_URL}/student/assignments`);
 }
 
 /** Fetch the surveys page. */
-export function fetchSurveys(cookies: string) {
-  return fetchPage(`${BASE_URL}/survey/user/viewall`, cookies);
+export function fetchSurveys() {
+  return fetchPage(`${BASE_URL}/survey/user/viewall`);
 }

@@ -8,8 +8,8 @@ import { loginToEtlab, validateSession } from '@/services/etlab-api';
 /** Persists only the username (display purposes). */
 const KEY_USERNAME = 'gcek_session_username';
 
-/** Persists the authenticated session cookies (NOT the password). */
-const KEY_COOKIES = 'gcek_session_cookies';
+/** Persists the authenticated session flag ("Keep me logged in"). */
+const KEY_IS_LOGGED_IN = 'gcek_is_logged_in';
 
 /** Persists the student-specific ID used for attendance URLs. */
 const KEY_STUDENT_ID = 'gcek_student_id';
@@ -19,8 +19,6 @@ const KEY_STUDENT_ID = 'gcek_student_id';
 interface LoginContextType {
   isLoggedIn: boolean;
   username: string;
-  /** Authenticated session cookies for ETLAB API calls. */
-  sessionCookies: string;
   /** Student-specific numeric ID used in attendance URLs. */
   studentId: string;
   /** True while the initial SecureStore / session validation is in progress. */
@@ -30,7 +28,7 @@ interface LoginContextType {
    *
    * @param username  Student ID or email
    * @param password  Used transiently — NEVER stored
-   * @param persist   If true, saves session cookies to SecureStore ("Keep me logged in")
+   * @param persist   If true, saves login flag to SecureStore ("Keep me logged in")
    */
   login: (username: string, password: string, persist: boolean) => Promise<{ success: boolean; error?: string }>;
   /** Clear the session and return to the login screen. */
@@ -46,7 +44,6 @@ const LoginContext = createContext<LoginContextType | undefined>(undefined);
 export function LoginProvider({ children }: { children: ReactNode }) {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [username, setUsername] = useState('');
-  const [sessionCookies, setSessionCookies] = useState('');
   const [studentId, setStudentId] = useState('');
   const [isRestoringSession, setIsRestoringSession] = useState(true);
 
@@ -54,17 +51,16 @@ export function LoginProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     (async () => {
       try {
-        const savedCookies = await SecureStore.getItemAsync(KEY_COOKIES);
+        const savedLoggedIn = await SecureStore.getItemAsync(KEY_IS_LOGGED_IN);
         const savedUsername = await SecureStore.getItemAsync(KEY_USERNAME);
         const savedStudentId = await SecureStore.getItemAsync(KEY_STUDENT_ID);
 
-        if (savedCookies && savedUsername) {
+        if (savedLoggedIn === 'true' && savedUsername) {
           // Validate the saved session is still alive
-          const valid = await validateSession(savedCookies);
+          const valid = await validateSession();
           if (valid) {
             setIsLoggedIn(true);
             setUsername(savedUsername);
-            setSessionCookies(savedCookies);
             setStudentId(savedStudentId || '');
           } else {
             // Session expired — clear persisted data
@@ -95,13 +91,12 @@ export function LoginProvider({ children }: { children: ReactNode }) {
       if (result.success) {
         setIsLoggedIn(true);
         setUsername(user);
-        setSessionCookies(result.cookies);
         setStudentId(result.studentId);
 
         if (persist) {
           try {
             await SecureStore.setItemAsync(KEY_USERNAME, user);
-            await SecureStore.setItemAsync(KEY_COOKIES, result.cookies);
+            await SecureStore.setItemAsync(KEY_IS_LOGGED_IN, 'true');
             if (result.studentId) {
               await SecureStore.setItemAsync(KEY_STUDENT_ID, result.studentId);
             }
@@ -129,8 +124,13 @@ export function LoginProvider({ children }: { children: ReactNode }) {
   const logout = async () => {
     setIsLoggedIn(false);
     setUsername('');
-    setSessionCookies('');
     setStudentId('');
+    try {
+      // Cleanly invalidate session on the ETLAB server
+      await fetch('https://gcek.etlab.in/user/logout');
+    } catch {
+      // Ignore network errors during logout
+    }
     await clearPersistedSession();
   };
 
@@ -146,7 +146,6 @@ export function LoginProvider({ children }: { children: ReactNode }) {
       value={{
         isLoggedIn,
         username,
-        sessionCookies,
         studentId,
         isRestoringSession,
         login,
@@ -174,7 +173,7 @@ export function useLogin() {
 async function clearPersistedSession() {
   try {
     await SecureStore.deleteItemAsync(KEY_USERNAME);
-    await SecureStore.deleteItemAsync(KEY_COOKIES);
+    await SecureStore.deleteItemAsync(KEY_IS_LOGGED_IN);
     await SecureStore.deleteItemAsync(KEY_STUDENT_ID);
   } catch {
     // Ignore — session is cleared in-memory regardless.

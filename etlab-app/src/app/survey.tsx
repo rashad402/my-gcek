@@ -79,7 +79,7 @@ export default function SurveyScreen() {
   const scheme = colorScheme === 'dark' ? 'dark' : 'light';
   const colors = Colors[scheme];
 
-  const { sessionCookies, handleSessionExpired } = useLogin();
+  const { handleSessionExpired } = useLogin();
   const [surveys, setSurveys] = useState<Survey[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -94,7 +94,7 @@ export default function SurveyScreen() {
     setErrorMsg('');
 
     try {
-      const res = await fetchSurveys(sessionCookies);
+      const res = await fetchSurveys();
       if (res.sessionExpired) {
         handleSessionExpired();
         return;
@@ -110,7 +110,7 @@ export default function SurveyScreen() {
       setIsLoading(false);
       setIsRefreshing(false);
     }
-  }, [sessionCookies, handleSessionExpired]);
+  }, [handleSessionExpired]);
 
   useEffect(() => {
     loadData();

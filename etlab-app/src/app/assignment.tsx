@@ -63,7 +63,7 @@ export default function AssignmentScreen() {
   const scheme = colorScheme === 'dark' ? 'dark' : 'light';
   const colors = Colors[scheme];
 
-  const { sessionCookies, handleSessionExpired } = useLogin();
+  const { handleSessionExpired } = useLogin();
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -78,7 +78,7 @@ export default function AssignmentScreen() {
     setErrorMsg('');
 
     try {
-      const res = await fetchAssignments(sessionCookies);
+      const res = await fetchAssignments();
       if (res.sessionExpired) {
         handleSessionExpired();
         return;
@@ -94,7 +94,7 @@ export default function AssignmentScreen() {
       setIsLoading(false);
       setIsRefreshing(false);
     }
-  }, [sessionCookies, handleSessionExpired]);
+  }, [handleSessionExpired]);
 
   useEffect(() => {
     loadData();

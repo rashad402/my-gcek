@@ -84,7 +84,7 @@ export default function ResultScreen() {
   const scheme = colorScheme === 'dark' ? 'dark' : 'light';
   const colors = Colors[scheme];
 
-  const { sessionCookies, handleSessionExpired } = useLogin();
+  const { handleSessionExpired } = useLogin();
   const [subjectResults, setSubjectResults] = useState<SubjectResult[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -99,7 +99,7 @@ export default function ResultScreen() {
     setErrorMsg('');
 
     try {
-      const res = await fetchResults(sessionCookies);
+      const res = await fetchResults();
       if (res.sessionExpired) {
         handleSessionExpired();
         return;
@@ -115,7 +115,7 @@ export default function ResultScreen() {
       setIsLoading(false);
       setIsRefreshing(false);
     }
-  }, [sessionCookies, handleSessionExpired]);
+  }, [handleSessionExpired]);
 
   useEffect(() => {
     loadData();

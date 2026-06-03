@@ -95,7 +95,7 @@ export default function AttendanceDashboard() {
   const scheme = colorScheme === 'dark' ? 'dark' : 'light';
   const colors = Colors[scheme];
 
-  const { sessionCookies, studentId, handleSessionExpired } = useLogin();
+  const { studentId, handleSessionExpired } = useLogin();
 
   const [subjects, setSubjects] = useState<SubjectAttendance[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -111,7 +111,7 @@ export default function AttendanceDashboard() {
     setErrorMsg('');
 
     try {
-      const res = await fetchAttendance(sessionCookies, studentId);
+      const res = await fetchAttendance(studentId);
       if (res.sessionExpired) {
         handleSessionExpired();
         return;
@@ -127,7 +127,7 @@ export default function AttendanceDashboard() {
       setIsLoading(false);
       setIsRefreshing(false);
     }
-  }, [sessionCookies, studentId, handleSessionExpired]);
+  }, [studentId, handleSessionExpired]);
 
   useEffect(() => {
     loadData();
