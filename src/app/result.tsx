@@ -19,11 +19,12 @@ import { parseResults, SubjectResult, ResultEntry } from '@/services/etlab-parse
 
 interface SubjectResultCardProps {
   subject: string;
+  subjectName?: string;
   results: ResultEntry[];
   colors: any;
 }
 
-function SubjectResultCard({ subject, results, colors }: SubjectResultCardProps) {
+function SubjectResultCard({ subject, subjectName, results, colors }: SubjectResultCardProps) {
   const [expanded, setExpanded] = useState(false);
 
   // Compute overall percentage
@@ -43,8 +44,8 @@ function SubjectResultCard({ subject, results, colors }: SubjectResultCardProps)
             <Text style={styles.iconEmoji}>📚</Text>
           </View>
           <View style={styles.cardHeaderText}>
-            <Text style={[styles.subjectTitle, { color: colors.text }]} numberOfLines={1} ellipsizeMode="tail">
-              {subject}
+            <Text style={[styles.subjectTitle, { color: colors.text }]}>
+              {subject}{subjectName ? ` - ${subjectName}` : ''}
             </Text>
             <Text style={[styles.subjectSubtitle, { color: colors.textSecondary }]}>
               {results.length} assessment{results.length > 1 ? 's' : ''}
@@ -169,7 +170,7 @@ export default function ResultScreen() {
               </View>
             ) : (
               subjectResults.map((item, idx) => (
-                <SubjectResultCard key={idx} subject={item.subject} results={item.results} colors={colors} />
+                <SubjectResultCard key={idx} subject={item.subject} subjectName={item.subjectName} results={item.results} colors={colors} />
               ))
             )}
           </ScrollView>
@@ -254,6 +255,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     padding: Spacing.three,
+    gap: Spacing.one,
   },
   cardLeft: {
     flexDirection: 'row',

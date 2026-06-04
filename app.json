@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "etlab-app",
-    "slug": "etlab-app",
+    "name": "My Gcek",
+    "slug": "my-gcek",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",

@@ -220,6 +220,8 @@ export interface ResultEntry {
 export interface SubjectResult {
   /** Subject / course name */
   subject: string;
+  /** Full course name if available */
+  subjectName?: string;
   /** List of exam results for this subject */
   results: ResultEntry[];
 }
@@ -303,8 +305,10 @@ export function parseResults(html: string): SubjectResult[] {
         continue;
       }
 
-      // Clean subject code (e.g. "CST302 - COMPILER DESIGN" -> "CST302")
-      const subject = rawSubject.split('-')[0].trim();
+      // Clean subject code (e.g. "CST302 - COMPILER DESIGN" -> "CST302" and "COMPILER DESIGN")
+      const subjectParts = rawSubject.split('-');
+      const subject = subjectParts[0].trim();
+      const subjectName = subjectParts[1] ? subjectParts[1].trim() : '';
 
       // Determine assessment title
       let examName = sectionTitle; // Default to table title (e.g., "Internal marks")
@@ -332,7 +336,7 @@ export function parseResults(html: string): SubjectResult[] {
 
       let subjGroup = results.find((r) => r.subject === subject);
       if (!subjGroup) {
-        subjGroup = { subject, results: [] };
+        subjGroup = { subject, subjectName, results: [] };
         results.push(subjGroup);
       }
 
@@ -371,11 +375,14 @@ export function parseResults(html: string): SubjectResult[] {
       subjectMap.get(subject)!.push(entry);
     }
 
-    for (const [subject, entries] of subjectMap) {
-      const cleanSubj = subject.split('-')[0].trim();
-      let subjGroup = results.find((r) => r.subject === cleanSubj);
+    for (const [rawSubject, entries] of subjectMap) {
+      const subjectParts = rawSubject.split('-');
+      const subject = subjectParts[0].trim();
+      const subjectName = subjectParts[1] ? subjectParts[1].trim() : '';
+
+      let subjGroup = results.find((r) => r.subject === subject);
       if (!subjGroup) {
-        subjGroup = { subject: cleanSubj, results: [] };
+        subjGroup = { subject, subjectName, results: [] };
         results.push(subjGroup);
       }
       subjGroup.results.push(...entries);
