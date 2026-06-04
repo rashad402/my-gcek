@@ -8,11 +8,11 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
-  SafeAreaView,
   Alert,
   ActivityIndicator,
   Linking,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLogin } from './login-context';
 import { Colors, Fonts, Spacing, Roundness } from '@/constants/theme';
 import { useColorScheme } from 'react-native';
@@ -52,14 +52,7 @@ export default function LoginScreen() {
     }
   };
 
-  const useTestCreds = () => {
-    // Prefill and submit test credentials (dev-only)
-    setUsernameInput('admin');
-    setPasswordInput('password');
-    setKeepLoggedIn(true);
-    // Small timeout to allow state to propagate before submit
-    setTimeout(() => handleSignIn(), 50);
-  };
+
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
@@ -117,7 +110,7 @@ export default function LoginScreen() {
                     style={styles.eyeButton}
                     disabled={isLoading}
                   >
-                    <Text style={styles.eyeText}>{showPassword ? '👁️' : '🕶️'}</Text>
+                    <Text style={styles.eyeText}>{showPassword ? '🐵' : '🙈'}</Text>
                   </TouchableOpacity>
                 </View>
               </View>
@@ -162,11 +155,7 @@ export default function LoginScreen() {
                 )}
               </TouchableOpacity>
 
-              {__DEV__ ? (
-                <TouchableOpacity style={styles.testButton} onPress={useTestCreds} disabled={isLoading}>
-                  <Text style={styles.testButtonText}>Use test creds (admin / password)</Text>
-                </TouchableOpacity>
-              ) : null}
+
             </View>
 
             {/* Footer */}
@@ -348,14 +337,5 @@ const styles = StyleSheet.create({
     fontFamily: Fonts.body,
     fontSize: 12,
     textAlign: 'center',
-  },
-  testButton: {
-    marginTop: Spacing.two,
-    alignItems: 'center',
-  },
-  testButtonText: {
-    color: '#6b7280',
-    fontFamily: Fonts.bodyMedium,
-    fontSize: 13,
   },
 });

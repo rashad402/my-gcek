@@ -60,6 +60,7 @@ export function TabButton({ children, isFocused, ...props }: TabTriggerSlotProps
 export function CustomTabList(props: TabListProps) {
   const scheme = useColorScheme();
   const colors = Colors[scheme === 'dark' ? 'dark' : 'light'];
+  const { isLoggedIn, logout } = useLogin();
 
   return (
     <View {...props} style={styles.tabListContainer}>
@@ -69,6 +70,16 @@ export function CustomTabList(props: TabListProps) {
         </ThemedText>
 
         {props.children}
+
+        {isLoggedIn && (
+          <Pressable onPress={() => logout()} style={({ pressed }) => pressed && styles.pressed}>
+            <ThemedView type="backgroundElement" style={[styles.tabButtonView, styles.logoutButtonView]}>
+              <ThemedText type="smallBold" style={{ color: colors.error }}>
+                🚪 Log Out
+              </ThemedText>
+            </ThemedView>
+          </Pressable>
+        )}
       </ThemedView>
     </View>
   );
@@ -103,5 +114,8 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.one,
     paddingHorizontal: Spacing.three,
     borderRadius: Spacing.three,
+  },
+  logoutButtonView: {
+    backgroundColor: 'rgba(186, 26, 26, 0.08)',
   },
 });

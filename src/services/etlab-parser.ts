@@ -26,6 +26,20 @@ function decodeEntities(text: string): string {
     .replace(/&nbsp;/g, ' ');
 }
 
+/** Extract all <th> header contents from an HTML table. */
+function extractTableHeaders(html: string): string[] {
+  const headers: string[] = [];
+  const theadMatch = html.match(/<thead[^>]*>([\s\S]*?)<\/thead>/i);
+  if (!theadMatch) return headers;
+
+  const thRegex = /<th[^>]*>([\s\S]*?)<\/th>/gi;
+  let thMatch: RegExpExecArray | null;
+  while ((thMatch = thRegex.exec(theadMatch[1])) !== null) {
+    headers.push(decodeEntities(stripTags(thMatch[1])));
+  }
+  return headers;
+}
+
 /** Extract all <tr> row contents from an HTML table body. */
 function extractTableRows(html: string): string[][] {
   const rows: string[][] = [];
@@ -74,24 +88,62 @@ export interface SubjectAttendance {
  */
 export function parseAttendance(html: string): SubjectAttendance[] {
   const results: SubjectAttendance[] = [];
+  const headers = extractTableHeaders(html);
+  
+  // Check if this is the horizontal attendance grid (student row with subject columns)
+  const isHorizontal = headers.some(h => /reg\s*no|roll\s*no|name/i.test(h));
+  
+  if (isHorizontal) {
+    const rows = extractTableRows(html);
+    if (rows.length === 0) return results;
+    
+    // Take the first row (the logged-in student's row)
+    const cells = rows[0];
+    
+    // Map headers to cells
+    for (let i = 0; i < headers.length; i++) {
+      const header = headers[i].trim();
+      
+      // Skip metadata and totals columns
+      if (/reg\s*no|roll\s*no|name|total|percentage/i.test(header) || !header) {
+        continue;
+      }
+      
+      const cellVal = cells[i] ? cells[i].trim() : '';
+      if (!cellVal) continue;
+      
+      // Parse "Attended/Total (Percentage%)" - e.g. "45/47 (96%)"
+      const match = cellVal.match(/(\d+)\s*\/\s*(\d+)(?:\s*\(\s*(\d+)\s*%\s*\))?/);
+      if (match) {
+        const attended = parseInt(match[1], 10);
+        const total = parseInt(match[2], 10);
+        const percentage = match[3] 
+          ? parseFloat(match[3]) 
+          : (total > 0 ? Math.round((attended / total) * 100) : 0);
+          
+        results.push({
+          subject: header,
+          professor: '',
+          percentage: Math.round(percentage * 10) / 10,
+          attended,
+          total,
+        });
+      }
+    }
+    return results;
+  }
+
+  // Fallback to original vertical parser
   const rows = extractTableRows(html);
 
   for (const cells of rows) {
     if (cells.length < 3) continue;
-
-    // Try to identify the structure by looking for numeric-like cells
-    // Common patterns:
-    //   [slNo, subject, total, present, absent, percentage]
-    //   [slNo, subject, total, present, percentage]
-    //   [subject, total, present, absent, percentage]
 
     let subject = '';
     let total = 0;
     let attended = 0;
     let percentage = 0;
 
-    // Strategy: find the first non-numeric cell as subject name,
-    // then extract numbers from subsequent cells
     const nums: number[] = [];
     let subjectIdx = -1;
 
@@ -395,13 +447,34 @@ export function parseSurveys(html: string): Survey[] {
   // Strategy 1: Table-based
   const rows = extractTableRows(html);
   if (rows.length > 0) {
-    for (const cells of rows) {
+    // Find all <tr> tags to correlate with the rows
+    const trRegex = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
+    const trContents: string[] = [];
+    let trMatch: RegExpExecArray | null;
+    while ((trMatch = trRegex.exec(html)) !== null) {
+      const rowHtml = trMatch[1];
+      if (/<th[\s>]/i.test(rowHtml)) continue;
+      trContents.push(rowHtml);
+    }
+
+    for (let idx = 0; idx < rows.length; idx++) {
+      const cells = rows[idx];
       if (cells.length < 2) continue;
 
       let title = '';
       let statusText = '';
       let deadline = '';
       let url = '';
+
+      // Extract URL from original tr HTML if available
+      const trHtml = trContents[idx];
+      if (trHtml) {
+        const hrefMatch = trHtml.match(/href\s*=\s*["']([^"']+)["']/i);
+        if (hrefMatch) {
+          const href = hrefMatch[1];
+          url = href.startsWith('http') ? href : `https://gcek.etlab.in${href}`;
+        }
+      }
 
       for (const cell of cells) {
         if (!deadline && /\d{1,4}[-\/]\d{1,2}[-\/]\d{1,4}/.test(cell)) {

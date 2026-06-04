@@ -162,11 +162,6 @@ export async function loginToEtlab(
   password: string,
   rememberMe: boolean,
 ): Promise<LoginResult> {
-  // Dev-only: accept a hardcoded test credential pair when running in
-  // development. This helps local testers avoid network logins.
-  if ((globalThis as any).__DEV__ && username === 'admin' && password === 'password') {
-    return { success: true, studentId: 'dev-admin' };
-  }
 
   // Browsers enforce CORS which prevents performing cross-site cookie-auth
   // logins from web builds unless the backend enables CORS. Provide a
@@ -219,7 +214,20 @@ export async function loginToEtlab(
   }
 
   // Otherwise, we succeeded and followed redirect to the dashboard.
-  const studentId = extractStudentId(responseHtml) || '';
+  let studentId = extractStudentId(responseHtml) || '';
+
+  if (!studentId) {
+    try {
+      const attPageRes = await fetch(`${BASE_URL}/student/attendance`, {
+        headers: { 'User-Agent': 'MyGCEK/1.0' },
+      });
+      const attPageHtml = await attPageRes.text();
+      studentId = extractStudentId(attPageHtml) || '';
+    } catch {
+      // Ignore network error, fallback to empty string
+    }
+  }
+
   return {
     success: true,
     studentId,
@@ -267,6 +275,7 @@ export interface FetchPageResult {
  * Detects session expiry (redirect to login page).
  */
 export async function fetchPage(url: string): Promise<FetchPageResult> {
+
   const res = await fetch(url, {
     headers: { 'User-Agent': 'MyGCEK/1.0' },
     redirect: 'manual',

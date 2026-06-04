@@ -25,49 +25,6 @@ export default function AppTabs() {
   const colors = Colors[scheme];
   const { isLoggedIn } = useLogin();
 
-  // When logged out, render only the index/login tab so other routes
-  // cannot be navigated to. When logged in, render the full tab set.
-  if (!isLoggedIn) {
-    return (
-      <Tabs
-        screenOptions={{
-          tabBarActiveTintColor: colors.primary,
-          tabBarInactiveTintColor: colors.textSecondary,
-          tabBarStyle: {
-            backgroundColor: colors.surfaceLowest,
-            borderTopColor: colors.outlineVariant,
-            borderTopWidth: 0,
-            paddingTop: 4,
-            shadowColor: '#000',
-            shadowOffset: { width: 0, height: -2 },
-            shadowOpacity: 0.03,
-            shadowRadius: 8,
-            elevation: 8,
-          },
-          tabBarLabelStyle: {
-            fontFamily: Fonts.label,
-            fontSize: 10,
-            letterSpacing: 1,
-            textTransform: 'uppercase',
-            marginTop: 2,
-          },
-          headerShown: false,
-        }}
-      >
-        <Tabs.Screen
-          name="index"
-          options={{
-            title: 'Login',
-            tabBarLabel: 'Login',
-            tabBarIcon: ({ focused, color }) => (
-              <TabIcon emoji="📅" focused={focused} color={color} />
-            ),
-          }}
-        />
-      </Tabs>
-    );
-  }
-
   return (
     <Tabs
       screenOptions={{
@@ -83,6 +40,7 @@ export default function AppTabs() {
           shadowOpacity: 0.03,
           shadowRadius: 8,
           elevation: 8,
+          display: isLoggedIn ? 'flex' : 'none',
         },
         tabBarLabelStyle: {
           fontFamily: Fonts.label,
@@ -94,12 +52,12 @@ export default function AppTabs() {
         headerShown: false,
       }}
     >
-      {/* 1. Attendance — index route (shows dashboard because LoginProvider is mounted) */}
+      {/* 1. Attendance — index route */}
       <Tabs.Screen
         name="index"
         options={{
-          title: 'Attendance',
-          tabBarLabel: 'Attendance',
+          title: isLoggedIn ? 'Attendance' : 'Login',
+          tabBarLabel: isLoggedIn ? 'Attendance' : 'Login',
           tabBarIcon: ({ focused, color }) => (
             <TabIcon emoji="📅" focused={focused} color={color} />
           ),
@@ -112,6 +70,7 @@ export default function AppTabs() {
         options={{
           title: 'Result',
           tabBarLabel: 'Result',
+          href: isLoggedIn ? undefined : null,
           tabBarIcon: ({ focused, color }) => (
             <TabIcon emoji="⭐" focused={focused} color={color} />
           ),
@@ -124,6 +83,7 @@ export default function AppTabs() {
         options={{
           title: 'Assignment',
           tabBarLabel: 'Assignment',
+          href: isLoggedIn ? undefined : null,
           tabBarIcon: ({ focused, color }) => (
             <TabIcon emoji="📝" focused={focused} color={color} />
           ),
@@ -136,12 +96,12 @@ export default function AppTabs() {
         options={{
           title: 'Survey',
           tabBarLabel: 'Survey',
+          href: isLoggedIn ? undefined : null,
           tabBarIcon: ({ focused, color }) => (
             <TabIcon emoji="📋" focused={focused} color={color} />
           ),
         }}
       />
-
     </Tabs>
   );
 }

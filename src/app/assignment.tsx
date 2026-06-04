@@ -4,11 +4,11 @@ import {
   View,
   Text,
   ScrollView,
-  SafeAreaView,
   TouchableOpacity,
   ActivityIndicator,
   RefreshControl,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Colors, Fonts, Spacing, Roundness } from '@/constants/theme';
 import { useColorScheme } from 'react-native';
 import { ProtectedScreen } from '@/components/protected-screen';
