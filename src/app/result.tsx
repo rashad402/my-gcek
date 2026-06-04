@@ -45,7 +45,7 @@ function SubjectResultCard({ subject, subjectName, results, colors }: SubjectRes
           </View>
           <View style={styles.cardHeaderText}>
             <Text style={[styles.subjectTitle, { color: colors.text }]}>
-              {subject}{subjectName ? ` - ${subjectName}` : ''}
+              {subjectName || subject}
             </Text>
             <Text style={[styles.subjectSubtitle, { color: colors.textSecondary }]}>
               {results.length} assessment{results.length > 1 ? 's' : ''}
@@ -61,6 +61,14 @@ function SubjectResultCard({ subject, subjectName, results, colors }: SubjectRes
       {expanded && (
         <View style={styles.cardContent}>
           <View style={[styles.divider, { backgroundColor: colors.outlineVariant }]} />
+          <View style={styles.resultRow}>
+            <View style={styles.resultInfo}>
+              <Text style={[styles.examName, { color: colors.text }]}>Course Code</Text>
+            </View>
+            <Text style={[styles.marksText, { color: colors.textSecondary }]}>
+              {subject}
+            </Text>
+          </View>
           {results.map((res, idx) => (
             <View key={idx} style={styles.resultRow}>
               <View style={styles.resultInfo}>
