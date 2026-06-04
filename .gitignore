@@ -1,60 +1,43 @@
-# Dependency directories
+# Learn more https://docs.github.com/en/get-started/getting-started-with-git/ignoring-files
+
+# dependencies
 node_modules/
 
-# Build and Expo directories
+# Expo
 .expo/
 dist/
 web-build/
 expo-env.d.ts
 
-# Metro / bundler cache
-.metro-health-check*
-haste-map-*
-
-# Android-specific build and IDE files
-android/build/
-android/app/build/
-android/.gradle/
-android/local.properties
-.gradle/
-build/
-*.apk
-*.aar
-*.ap_
-
-# iOS-specific build and dependency files
-ios/build/
-ios/Pods/
-ios/.xcode.env.local
-*.xcworkspace/
-!ios/*.xcworkspace
-xcuserdata/
-DerivedData/
-
-# Keystores and private keys / certificates (Crucial for security)
+# Native
+.kotlin/
+*.orig.*
 *.jks
-*.keystore
 *.p8
 *.p12
 *.key
-*.pem
 *.mobileprovision
 
-# Local environment files
-.env
+# Metro
+.metro-health-check*
+
+# debug
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+
+# macOS
+.DS_Store
+*.pem
+
+# local env files
 .env*.local
 
-# Editor directories and common files
-.vscode/
-.idea/
-.DS_Store
-*.suo
-*.ntvs*
-*.njsproj
-*.sln
-*.sw?
-*.orig
-*.orig.*
-
-# TypeScript cache
+# typescript
 *.tsbuildinfo
+
+example
+
+# generated native folders
+/ios
+/android

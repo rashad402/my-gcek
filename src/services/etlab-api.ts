@@ -10,6 +10,8 @@
  * NEVER stored or returned. Only session cookies leave this module.
  */
 
+import { Platform } from 'react-native';
+
 const BASE_URL = 'https://gcek.etlab.in';
 
 // ─── Cookie helpers ─────────────────────────────────────────────────────────
@@ -160,6 +162,23 @@ export async function loginToEtlab(
   password: string,
   rememberMe: boolean,
 ): Promise<LoginResult> {
+  // Dev-only: accept a hardcoded test credential pair when running in
+  // development. This helps local testers avoid network logins.
+  if ((globalThis as any).__DEV__ && username === 'admin' && password === 'password') {
+    return { success: true, studentId: 'dev-admin' };
+  }
+
+  // Browsers enforce CORS which prevents performing cross-site cookie-auth
+  // logins from web builds unless the backend enables CORS. Provide a
+  // clearer error message when running on web so users aren't left wondering.
+  if (Platform.OS === 'web') {
+    return {
+      success: false,
+      studentId: '',
+      error:
+        'Login from web is not supported: the ETLAB server blocks cross-origin requests. Run the app on a device/emulator or configure a CORS proxy.',
+    };
+  }
   // ── Step 1: GET login page ──────────────────────────────────────────
   // Fetch directly from user/login to avoid intermediate redirect from /
   const loginPageRes = await fetch(`${BASE_URL}/user/login`, {

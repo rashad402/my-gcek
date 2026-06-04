@@ -52,6 +52,15 @@ export default function LoginScreen() {
     }
   };
 
+  const useTestCreds = () => {
+    // Prefill and submit test credentials (dev-only)
+    setUsernameInput('admin');
+    setPasswordInput('password');
+    setKeepLoggedIn(true);
+    // Small timeout to allow state to propagate before submit
+    setTimeout(() => handleSignIn(), 50);
+  };
+
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
       <KeyboardAvoidingView
@@ -152,6 +161,12 @@ export default function LoginScreen() {
                   <Text style={styles.buttonText}>Sign In  →</Text>
                 )}
               </TouchableOpacity>
+
+              {__DEV__ ? (
+                <TouchableOpacity style={styles.testButton} onPress={useTestCreds} disabled={isLoading}>
+                  <Text style={styles.testButtonText}>Use test creds (admin / password)</Text>
+                </TouchableOpacity>
+              ) : null}
             </View>
 
             {/* Footer */}
@@ -333,5 +348,14 @@ const styles = StyleSheet.create({
     fontFamily: Fonts.body,
     fontSize: 12,
     textAlign: 'center',
+  },
+  testButton: {
+    marginTop: Spacing.two,
+    alignItems: 'center',
+  },
+  testButtonText: {
+    color: '#6b7280',
+    fontFamily: Fonts.bodyMedium,
+    fontSize: 13,
   },
 });
