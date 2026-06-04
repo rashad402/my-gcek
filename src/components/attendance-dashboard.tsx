@@ -28,6 +28,32 @@ interface SubjectCardProps {
   colors: any;
 }
 
+function getSubjectName(code: string): string {
+  const cleanCode = code.trim().toUpperCase();
+  
+  // 1. Try to find in dynamic results cache
+  if (dataCache.results) {
+    const found = dataCache.results.find(r => r.subject.trim().toUpperCase() === cleanCode);
+    if (found && found.subjectName) {
+      return found.subjectName;
+    }
+  }
+  
+  // 2. Fallback to static mapping for common GCEK courses
+  const staticMap: Record<string, string> = {
+    'CST302': 'Compiler Design',
+    'HUT300': 'Industrial Economics & Foreign Trade',
+    'CST304': 'Computer Graphics & Image Processing',
+    'CST306': 'Algorithm Analysis & Design',
+    'CST308': 'Comprehensive Course Work',
+    'CSL332': 'Networking Lab',
+    'CSD334': 'Miniproject',
+    'CST362': 'Programming in Python',
+  };
+  
+  return staticMap[cleanCode] || code;
+}
+
 function SubjectCard({
   subject,
   professor,
@@ -40,16 +66,17 @@ function SubjectCard({
 }: SubjectCardProps) {
   const isHigh = percentage >= 75;
   const progressColor = isHigh ? colors.primary : colors.error;
+  const displayName = getSubjectName(subject);
 
   return (
     <View style={[styles.card, { backgroundColor: colors.surfaceLowest, borderColor: colors.outlineVariant }]}>
       <View style={styles.cardHeader}>
         <View style={styles.cardInfo}>
-          <Text style={[styles.cardTitle, { color: colors.text }]}>📖 {subject}</Text>
+          <Text style={[styles.cardTitle, { color: colors.text }]} numberOfLines={2}>📖 {displayName}</Text>
           {professor ? (
-            <Text style={[styles.cardProf, { color: colors.textSecondary }]}>👤 {professor}</Text>
+            <Text style={[styles.cardProf, { color: colors.textSecondary }]}>👤 {professor} ({subject})</Text>
           ) : (
-            <Text style={[styles.cardProf, { color: colors.textSecondary }]}>📊 Logged Hours: {attended}/{total}</Text>
+            <Text style={[styles.cardProf, { color: colors.textSecondary }]}>📊 {subject} • Logged: {attended}/{total} hrs</Text>
           )}
         </View>
         
