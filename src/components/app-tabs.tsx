@@ -1,5 +1,5 @@
 import { Tabs } from 'expo-router';
-import { View, Text, StyleSheet, useColorScheme } from 'react-native';
+import { View, Text, StyleSheet, useColorScheme, Platform } from 'react-native';
 import { useLogin } from './login-context';
 import { Colors, Fonts, Spacing, Roundness } from '@/constants/theme';
 
@@ -34,7 +34,9 @@ export default function AppTabs() {
           backgroundColor: colors.surfaceLowest,
           borderTopColor: colors.outlineVariant,
           borderTopWidth: 0,
-          paddingTop: 4,
+          paddingTop: 8,
+          paddingBottom: Platform.OS === 'ios' ? 24 : 12,
+          height: Platform.OS === 'ios' ? 84 : 64,
           shadowColor: '#000',
           shadowOffset: { width: 0, height: -2 },
           shadowOpacity: 0.03,
