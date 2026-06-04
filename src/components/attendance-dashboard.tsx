@@ -15,6 +15,7 @@ import { Colors, Fonts, Spacing, Roundness } from '@/constants/theme';
 import { useColorScheme } from 'react-native';
 import { fetchAttendance } from '@/services/etlab-api';
 import { parseAttendance, SubjectAttendance } from '@/services/etlab-parser';
+import { dataCache } from '@/services/data-cache';
 
 interface SubjectCardProps {
   subject: string;
@@ -97,15 +98,17 @@ export default function AttendanceDashboard() {
 
   const { studentId, handleSessionExpired } = useLogin();
 
-  const [subjects, setSubjects] = useState<SubjectAttendance[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [subjects, setSubjects] = useState<SubjectAttendance[]>(dataCache.attendance || []);
+  const [isLoading, setIsLoading] = useState(!dataCache.attendance);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
 
   const loadData = useCallback(async (showRefreshingSpinner = false) => {
+    const hasCache = dataCache.attendance && dataCache.attendance.length > 0;
+
     if (showRefreshingSpinner) {
       setIsRefreshing(true);
-    } else {
+    } else if (!hasCache) {
       setIsLoading(true);
     }
     setErrorMsg('');
@@ -121,8 +124,11 @@ export default function AttendanceDashboard() {
       }
       const data = parseAttendance(res.html);
       setSubjects(data);
+      await dataCache.setAttendance(data);
     } catch (err: any) {
-      setErrorMsg(err.message || 'An error occurred while loading attendance.');
+      if (!hasCache) {
+        setErrorMsg(err.message || 'An error occurred while loading attendance.');
+      }
     } finally {
       setIsLoading(false);
       setIsRefreshing(false);

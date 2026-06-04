@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect, ReactNode } from
 import { Alert } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
 import { loginToEtlab, validateSession } from '@/services/etlab-api';
+import { dataCache } from '@/services/data-cache';
 
 // ─── SecureStore keys ───────────────────────────────────────────────────────
 
@@ -51,6 +52,7 @@ export function LoginProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     (async () => {
       try {
+        await dataCache.loadFromStorage();
         const savedLoggedIn = await SecureStore.getItemAsync(KEY_IS_LOGGED_IN);
         const savedUsername = await SecureStore.getItemAsync(KEY_USERNAME);
         const savedStudentId = await SecureStore.getItemAsync(KEY_STUDENT_ID);
@@ -131,6 +133,7 @@ export function LoginProvider({ children }: { children: ReactNode }) {
     } catch {
       // Ignore network errors during logout
     }
+    await dataCache.clear();
     await clearPersistedSession();
   };
 

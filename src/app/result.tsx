@@ -16,6 +16,7 @@ import { useColorScheme } from 'react-native';
 import { useLogin } from '@/components/login-context';
 import { fetchResults } from '@/services/etlab-api';
 import { parseResults, SubjectResult, ResultEntry } from '@/services/etlab-parser';
+import { dataCache } from '@/services/data-cache';
 
 interface SubjectResultCardProps {
   subject: string;
@@ -94,15 +95,17 @@ export default function ResultScreen() {
   const colors = Colors[scheme];
 
   const { handleSessionExpired } = useLogin();
-  const [subjectResults, setSubjectResults] = useState<SubjectResult[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [subjectResults, setSubjectResults] = useState<SubjectResult[]>(dataCache.results || []);
+  const [isLoading, setIsLoading] = useState(!dataCache.results);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
 
   const loadData = useCallback(async (showRefreshingSpinner = false) => {
+    const hasCache = dataCache.results && dataCache.results.length > 0;
+
     if (showRefreshingSpinner) {
       setIsRefreshing(true);
-    } else {
+    } else if (!hasCache) {
       setIsLoading(true);
     }
     setErrorMsg('');
@@ -118,8 +121,11 @@ export default function ResultScreen() {
       }
       const data = parseResults(res.html);
       setSubjectResults(data);
+      await dataCache.setResults(data);
     } catch (err: any) {
-      setErrorMsg(err.message || 'An error occurred while loading results.');
+      if (!hasCache) {
+        setErrorMsg(err.message || 'An error occurred while loading results.');
+      }
     } finally {
       setIsLoading(false);
       setIsRefreshing(false);

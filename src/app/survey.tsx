@@ -18,6 +18,7 @@ import { ProfileButton } from '@/components/profile-button';
 import { useLogin } from '@/components/login-context';
 import { fetchSurveys } from '@/services/etlab-api';
 import { parseSurveys, Survey, SurveyStatus } from '@/services/etlab-parser';
+import { dataCache } from '@/services/data-cache';
 
 interface SurveyCardProps {
   survey: Survey;
@@ -80,15 +81,17 @@ export default function SurveyScreen() {
   const colors = Colors[scheme];
 
   const { handleSessionExpired } = useLogin();
-  const [surveys, setSurveys] = useState<Survey[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [surveys, setSurveys] = useState<Survey[]>(dataCache.surveys || []);
+  const [isLoading, setIsLoading] = useState(!dataCache.surveys);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
 
   const loadData = useCallback(async (showRefreshingSpinner = false) => {
+    const hasCache = dataCache.surveys && dataCache.surveys.length > 0;
+
     if (showRefreshingSpinner) {
       setIsRefreshing(true);
-    } else {
+    } else if (!hasCache) {
       setIsLoading(true);
     }
     setErrorMsg('');
@@ -104,8 +107,11 @@ export default function SurveyScreen() {
       }
       const data = parseSurveys(res.html);
       setSurveys(data);
+      await dataCache.setSurveys(data);
     } catch (err: any) {
-      setErrorMsg(err.message || 'An error occurred while loading surveys.');
+      if (!hasCache) {
+        setErrorMsg(err.message || 'An error occurred while loading surveys.');
+      }
     } finally {
       setIsLoading(false);
       setIsRefreshing(false);

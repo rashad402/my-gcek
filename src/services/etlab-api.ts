@@ -182,6 +182,7 @@ export async function loginToEtlab(
   const loginPageHtml = await loginPageRes.text();
   const csrfToken = extractCsrfToken(loginPageHtml);
   const csrfFieldName = csrfToken ? extractCsrfFieldName(loginPageHtml) : '';
+  const cookies = parseCookies(loginPageRes.headers.get('set-cookie'));
 
   // ── Step 2: POST credentials ────────────────────────────────────────
   const formBody = new URLSearchParams();
@@ -197,6 +198,7 @@ export async function loginToEtlab(
     headers: {
       'Content-Type': 'application/x-www-form-urlencoded',
       'User-Agent': 'MyGCEK/1.0',
+      'Cookie': cookies,
     },
     body: formBody.toString(),
   });

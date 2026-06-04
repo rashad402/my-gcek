@@ -16,6 +16,7 @@ import { ProfileButton } from '@/components/profile-button';
 import { useLogin } from '@/components/login-context';
 import { fetchAssignments } from '@/services/etlab-api';
 import { parseAssignments, Assignment, AssignmentStatus } from '@/services/etlab-parser';
+import { dataCache } from '@/services/data-cache';
 
 interface AssignmentCardProps {
   assignment: Assignment;
@@ -64,15 +65,17 @@ export default function AssignmentScreen() {
   const colors = Colors[scheme];
 
   const { handleSessionExpired } = useLogin();
-  const [assignments, setAssignments] = useState<Assignment[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [assignments, setAssignments] = useState<Assignment[]>(dataCache.assignments || []);
+  const [isLoading, setIsLoading] = useState(!dataCache.assignments);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
 
   const loadData = useCallback(async (showRefreshingSpinner = false) => {
+    const hasCache = dataCache.assignments && dataCache.assignments.length > 0;
+
     if (showRefreshingSpinner) {
       setIsRefreshing(true);
-    } else {
+    } else if (!hasCache) {
       setIsLoading(true);
     }
     setErrorMsg('');
@@ -88,8 +91,11 @@ export default function AssignmentScreen() {
       }
       const data = parseAssignments(res.html);
       setAssignments(data);
+      await dataCache.setAssignments(data);
     } catch (err: any) {
-      setErrorMsg(err.message || 'An error occurred while loading assignments.');
+      if (!hasCache) {
+        setErrorMsg(err.message || 'An error occurred while loading assignments.');
+      }
     } finally {
       setIsLoading(false);
       setIsRefreshing(false);
