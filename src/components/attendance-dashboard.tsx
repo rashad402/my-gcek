@@ -16,6 +16,7 @@ import { useColorScheme } from 'react-native';
 import { fetchAttendance } from '@/services/etlab-api';
 import { parseAttendance, SubjectAttendance } from '@/services/etlab-parser';
 import { dataCache } from '@/services/data-cache';
+import * as SecureStore from 'expo-secure-store';
 
 interface SubjectCardProps {
   subject: string;
@@ -26,6 +27,7 @@ interface SubjectCardProps {
   alertText: string;
   alertType: 'success' | 'warning';
   colors: any;
+  targetPercentage: number;
 }
 
 function getSubjectName(code: string): string {
@@ -63,8 +65,9 @@ function SubjectCard({
   alertText,
   alertType,
   colors,
+  targetPercentage,
 }: SubjectCardProps) {
-  const isHigh = percentage >= 75;
+  const isHigh = percentage >= targetPercentage;
   const progressColor = isHigh ? colors.primary : colors.error;
   const displayName = getSubjectName(subject);
 
@@ -118,6 +121,8 @@ function SubjectCard({
   );
 }
 
+const KEY_TARGET_PERCENTAGE = 'gcek_target_percentage';
+
 export default function AttendanceDashboard() {
   const colorScheme = useColorScheme();
   const scheme = colorScheme === 'dark' ? 'dark' : 'light';
@@ -129,6 +134,34 @@ export default function AttendanceDashboard() {
   const [isLoading, setIsLoading] = useState(!dataCache.attendance);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+  const [targetPercentage, setTargetPercentage] = useState<number>(75);
+
+  // Load target percentage from SecureStore
+  useEffect(() => {
+    const loadTargetPercentage = async () => {
+      try {
+        const stored = await SecureStore.getItemAsync(KEY_TARGET_PERCENTAGE);
+        if (stored) {
+          const val = parseInt(stored, 10);
+          if (!isNaN(val) && [75, 80, 85, 90, 95].includes(val)) {
+            setTargetPercentage(val);
+          }
+        }
+      } catch (err) {
+        console.error('Failed to load target percentage', err);
+      }
+    };
+    loadTargetPercentage();
+  }, []);
+
+  const updateTargetPercentage = async (val: number) => {
+    setTargetPercentage(val);
+    try {
+      await SecureStore.setItemAsync(KEY_TARGET_PERCENTAGE, val.toString());
+    } catch (err) {
+      console.error('Failed to save target percentage', err);
+    }
+  };
 
   const loadData = useCallback(async (showRefreshingSpinner = false) => {
     const hasCache = dataCache.attendance && dataCache.attendance.length > 0;
@@ -170,32 +203,36 @@ export default function AttendanceDashboard() {
   const totalAttended = subjects.reduce((sum, s) => sum + s.attended, 0);
   const totalHours = subjects.reduce((sum, s) => sum + s.total, 0);
   const cumulative = totalHours > 0 ? Math.round((totalAttended / totalHours) * 1000) / 10 : 0;
-  const isCumulativeHigh = cumulative >= 75;
+  const isCumulativeHigh = cumulative >= targetPercentage;
 
   // Process subject alerts dynamically
   const subjectsWithAlerts = subjects.map((subj) => {
     let alertText = '';
     let alertType: 'success' | 'warning' = 'success';
+    const targetFraction = targetPercentage / 100;
 
     if (subj.total === 0) {
       alertText = 'No classes held yet.';
       alertType = 'success';
-    } else if (subj.percentage >= 75) {
+    } else if (subj.percentage >= targetPercentage) {
       // Safe: how many classes can the student miss?
-      // x <= (attended / 0.75) - total
-      const maxMissable = Math.floor(subj.attended / 0.75 - subj.total);
+      // x <= (attended / F) - total
+      const maxMissable = Math.floor(subj.attended / targetFraction - subj.total);
       if (maxMissable <= 0) {
-        alertText = 'You cannot miss any more classes to stay above 75%.';
-        alertType = 'warning'; // critical warning even though currently >= 75%
+        alertText = `You cannot miss any more classes to stay above ${targetPercentage}%.`;
+        alertType = 'warning'; // critical warning even though currently >= target
       } else {
-        alertText = `You can miss ${maxMissable} class${maxMissable > 1 ? 'es' : ''}.`;
+        alertText = `You can miss ${maxMissable} class${maxMissable > 1 ? 'es' : ''} to stay above ${targetPercentage}%.`;
         alertType = 'success';
       }
     } else {
-      // Warning: how many consecutive classes to attend to reach 75%?
-      // y >= 3*total - 4*attended
-      const reqClasses = Math.max(1, 3 * subj.total - 4 * subj.attended);
-      alertText = `Attend ${reqClasses} more class${reqClasses > 1 ? 'es' : ''} to reach 75%.`;
+      // Warning: how many consecutive classes to attend to reach targetPercentage?
+      // y >= (F * total - attended) / (1 - F)
+      const reqClasses = Math.max(
+        1,
+        Math.ceil((targetFraction * subj.total - subj.attended) / (1 - targetFraction))
+      );
+      alertText = `Attend ${reqClasses} more class${reqClasses > 1 ? 'es' : ''} to reach ${targetPercentage}%.`;
       alertType = 'warning';
     }
 
@@ -248,6 +285,44 @@ export default function AttendanceDashboard() {
             </View>
           </View>
 
+          {/* Target Attendance Selector */}
+          <View style={[styles.targetSelectorContainer, { backgroundColor: colors.surfaceLowest, borderColor: colors.outlineVariant }]}>
+            <Text style={[styles.targetSelectorTitle, { color: colors.textSecondary }]}>
+              🎯 Target Attendance Threshold: <Text style={{ fontFamily: Fonts.bodyBold, color: colors.primary }}>{targetPercentage}%</Text>
+            </Text>
+            <View style={styles.chipsRow}>
+              {[75, 80, 85, 90, 95].map((pct) => {
+                const isSelected = targetPercentage === pct;
+                return (
+                  <TouchableOpacity
+                    key={pct}
+                    activeOpacity={0.7}
+                    onPress={() => updateTargetPercentage(pct)}
+                    style={[
+                      styles.chip,
+                      {
+                        backgroundColor: isSelected ? colors.primary : colors.surfaceLow,
+                        borderColor: isSelected ? colors.primary : colors.outlineVariant,
+                      },
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.chipText,
+                        {
+                          color: isSelected ? (scheme === 'dark' ? '#1b1c1d' : '#ffffff') : colors.text,
+                          fontFamily: isSelected ? Fonts.bodyBold : Fonts.bodyMedium,
+                        },
+                      ]}
+                    >
+                      {pct}%
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </View>
+
           {/* Subjects list */}
           <View style={styles.listSection}>
             <Text style={[styles.sectionTitle, { color: colors.text }]}>Your Courses</Text>
@@ -257,7 +332,7 @@ export default function AttendanceDashboard() {
               </View>
             ) : (
               subjectsWithAlerts.map((subj, index) => (
-                <SubjectCard key={index} {...subj} colors={colors} />
+                <SubjectCard key={index} {...subj} colors={colors} targetPercentage={targetPercentage} />
               ))
             )}
           </View>
@@ -265,7 +340,7 @@ export default function AttendanceDashboard() {
           {/* Info card */}
           <View style={[styles.infoCard, { backgroundColor: colors.surfaceContainer }]}>
             <Text style={[styles.infoText, { color: colors.textSecondary }]}>
-              ℹ️ Attendance is fetched directly from ETLAB GCEK. A minimum threshold of 75% is required for each subject to register for exams.
+              ℹ️ Attendance is fetched directly from ETLAB GCEK. A minimum threshold of 75% is required for each subject to register for exams. Calculations are based on your target of {targetPercentage}%.
             </Text>
           </View>
         </ScrollView>
@@ -453,5 +528,36 @@ const styles = StyleSheet.create({
     color: '#ffffff',
     fontFamily: Fonts.bodyBold,
     fontSize: 14,
+  },
+  targetSelectorContainer: {
+    padding: Spacing.three,
+    borderRadius: Roundness.default,
+    borderWidth: 1,
+    gap: Spacing.two,
+  },
+  targetSelectorTitle: {
+    fontFamily: Fonts.bodyMedium,
+    fontSize: 13,
+  },
+  chipsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: Spacing.one,
+  },
+  chip: {
+    flex: 1,
+    paddingVertical: 10,
+    borderRadius: Roundness.full,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 1,
+    elevation: 1,
+  },
+  chipText: {
+    fontSize: 13,
   },
 });

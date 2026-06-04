@@ -196,6 +196,7 @@ export async function loginToEtlab(
   // Fetch directly from user/login to avoid intermediate redirect from /
   const loginPageRes = await fetch(`${BASE_URL}/user/login`, {
     headers: { 'User-Agent': 'MyGCEK/1.0' },
+    credentials: 'include',
   });
   const loginPageHtml = await loginPageRes.text();
   const csrfToken = extractCsrfToken(loginPageHtml);
@@ -227,6 +228,7 @@ export async function loginToEtlab(
     method: 'POST',
     headers: postHeaders,
     body: formBody.toString(),
+    credentials: 'include',
   });
 
   const responseHtml = await loginRes.text();
@@ -248,6 +250,7 @@ export async function loginToEtlab(
     try {
       const attPageRes = await fetch(`${BASE_URL}/student/attendance`, {
         headers: { 'User-Agent': 'MyGCEK/1.0' },
+        credentials: 'include',
       });
       const attPageHtml = await attPageRes.text();
       studentId = extractStudentId(attPageHtml) || '';
@@ -274,6 +277,7 @@ export async function validateSession(): Promise<boolean> {
     const res = await fetch(`${BASE_URL}/ktuacademics/student/results`, {
       headers: { 'User-Agent': 'MyGCEK/1.0' },
       redirect: 'manual',
+      credentials: 'include',
     });
     // Redirect to login = expired
     if (res.status >= 300 && res.status < 400) {
@@ -307,6 +311,7 @@ export async function fetchPage(url: string): Promise<FetchPageResult> {
   const res = await fetch(url, {
     headers: { 'User-Agent': 'MyGCEK/1.0' },
     redirect: 'manual',
+    credentials: 'include',
   });
 
   // Redirect to login = session expired
@@ -319,6 +324,7 @@ export async function fetchPage(url: string): Promise<FetchPageResult> {
     const absUrl = location.startsWith('http') ? location : `${BASE_URL}${location}`;
     const followRes = await fetch(absUrl, {
       headers: { 'User-Agent': 'MyGCEK/1.0' },
+      credentials: 'include',
     });
     return { ok: true, html: await followRes.text(), sessionExpired: false };
   }

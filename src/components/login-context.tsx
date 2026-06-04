@@ -129,7 +129,9 @@ export function LoginProvider({ children }: { children: ReactNode }) {
     setStudentId('');
     try {
       // Cleanly invalidate session on the ETLAB server
-      await fetch('https://gcek.etlab.in/user/logout');
+      await fetch('https://gcek.etlab.in/user/logout', {
+        credentials: 'include',
+      });
     } catch {
       // Ignore network errors during logout
     }
