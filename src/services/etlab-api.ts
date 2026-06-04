@@ -51,6 +51,24 @@ export function mergeCookies(older: string, newer: string): string {
   return Array.from(map.values()).join('; ');
 }
 
+/** Extract all set-cookie header values robustly. */
+function extractCookies(res: Response): string {
+  const headers = res.headers;
+  if (typeof headers.getSetCookie === 'function') {
+    return headers.getSetCookie()
+      .map((c) => c.split(';')[0].trim())
+      .filter(Boolean)
+      .join('; ');
+  }
+  const raw = headers.get('set-cookie');
+  if (!raw) return '';
+  return raw
+    .split(/,(?=\s*[A-Za-z_][A-Za-z0-9_]*=)/)
+    .map((c) => c.trim().split(';')[0])
+    .filter(Boolean)
+    .join('; ');
+}
+
 /** Extract the CSRF token from the ETLAB login page HTML. */
 function extractCsrfToken(html: string): string | null {
   // Primary: LoginForm[_token]
@@ -182,7 +200,11 @@ export async function loginToEtlab(
   const loginPageHtml = await loginPageRes.text();
   const csrfToken = extractCsrfToken(loginPageHtml);
   const csrfFieldName = csrfToken ? extractCsrfFieldName(loginPageHtml) : '';
-  const cookies = parseCookies(loginPageRes.headers.get('set-cookie'));
+  const cookies = extractCookies(loginPageRes);
+
+  // Introduce a 400ms delay to allow React Native's background thread
+  // to finish persisting cookies to the native cookie jar.
+  await new Promise((resolve) => setTimeout(resolve, 400));
 
   // ── Step 2: POST credentials ────────────────────────────────────────
   const formBody = new URLSearchParams();
@@ -193,13 +215,17 @@ export async function loginToEtlab(
   formBody.append('LoginForm[password]', password);
   formBody.append('LoginForm[rememberMe]', rememberMe ? '1' : '0');
 
+  const postHeaders: Record<string, string> = {
+    'Content-Type': 'application/x-www-form-urlencoded',
+    'User-Agent': 'MyGCEK/1.0',
+  };
+  if (cookies) {
+    postHeaders['Cookie'] = cookies;
+  }
+
   const loginRes = await fetch(`${BASE_URL}/user/login`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/x-www-form-urlencoded',
-      'User-Agent': 'MyGCEK/1.0',
-      'Cookie': cookies,
-    },
+    headers: postHeaders,
     body: formBody.toString(),
   });
 
