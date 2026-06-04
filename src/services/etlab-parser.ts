@@ -237,66 +237,121 @@ export interface SubjectResult {
 export function parseResults(html: string): SubjectResult[] {
   const results: SubjectResult[] = [];
 
-  // Strategy 1: Look for tables grouped by subject headings
-  // Split HTML by subject heading patterns (h3, h4, or table captions)
-  const sectionRegex = /<(?:h[2-5]|caption|th\s+colspan)[^>]*>([\s\S]*?)<\/(?:h[2-5]|caption|th)>/gi;
-  const sections: { name: string; startIdx: number }[] = [];
-  let sectionMatch: RegExpExecArray | null;
+  // Match <h5>Title</h5> and the matching <table> under it
+  const titleAndTableRegex = /<h5>\s*([\s\S]*?)\s*<\/h5>[\s\S]*?<table[^>]*>([\s\S]*?)<\/table>/gi;
+  let match: RegExpExecArray | null;
 
-  while ((sectionMatch = sectionRegex.exec(html)) !== null) {
-    const name = decodeEntities(stripTags(sectionMatch[1])).trim();
-    if (name.length > 2 && name.length < 100) {
-      sections.push({ name, startIdx: sectionMatch.index });
+  while ((match = titleAndTableRegex.exec(html)) !== null) {
+    const sectionTitle = decodeEntities(stripTags(match[1])).trim();
+    const tableHtml = match[2];
+
+    // 1. Extract headers to find column mappings
+    const headers: string[] = [];
+    const theadMatch = tableHtml.match(/<thead[^>]*>([\s\S]*?)<\/thead>/i);
+    if (theadMatch) {
+      const thRegex = /<th[^>]*>([\s\S]*?)<\/th>/gi;
+      let thMatch: RegExpExecArray | null;
+      while ((thMatch = thRegex.exec(theadMatch[1])) !== null) {
+        headers.push(decodeEntities(stripTags(thMatch[1])).toLowerCase());
+      }
     }
-  }
 
-  if (sections.length > 0) {
-    // Process each section
-    for (let i = 0; i < sections.length; i++) {
-      const start = sections[i].startIdx;
-      const end = i + 1 < sections.length ? sections[i + 1].startIdx : html.length;
-      const chunk = html.substring(start, end);
-      const rows = extractTableRows(chunk);
+    // Find column indices
+    const subjectIdx = headers.findIndex((h) => h.includes('subject'));
+    const maxMarksIdx = headers.findIndex((h) => h.includes('maximum marks') || h.includes('max marks'));
+    const marksObtainedIdx = headers.findIndex((h) => h.includes('marks obtained') || h.includes('obtained'));
 
-      if (rows.length === 0) continue;
+    // Find exam/assessment name column (not subject, not max marks, not marks obtained, not semester, not view response)
+    const examNameIdx = headers.findIndex((h, idx) =>
+      idx !== subjectIdx &&
+      idx !== maxMarksIdx &&
+      idx !== marksObtainedIdx &&
+      !h.includes('semester') &&
+      !h.includes('view') &&
+      h.trim().length > 0
+    );
 
-      const subjectResults: ResultEntry[] = [];
-      for (const cells of rows) {
-        if (cells.length < 2) continue;
-        const examName = cells[0];
-        const nums = cells.slice(1).map((c) => parseFloat(c.replace(/[%\s]/g, ''))).filter((n) => !isNaN(n));
+    if (subjectIdx === -1 || maxMarksIdx === -1 || marksObtainedIdx === -1) {
+      // Table doesn't match a standard results table layout
+      continue;
+    }
 
-        if (nums.length >= 2) {
-          subjectResults.push({
-            name: examName,
-            marks: nums[0],
-            total: nums[1],
-            grade: cells.length > 3 ? cells[cells.length - 1] : '',
-          });
-        } else if (nums.length === 1) {
-          subjectResults.push({
-            name: examName,
-            marks: nums[0],
-            total: 100, // default assumption
-            grade: '',
-          });
+    // 2. Extract rows
+    const tbodyMatch = tableHtml.match(/<tbody[^>]*>([\s\S]*?)<\/tbody>/i);
+    const searchArea = tbodyMatch ? tbodyMatch[1] : tableHtml;
+
+    const trRegex = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
+    let trMatch: RegExpExecArray | null;
+
+    while ((trMatch = trRegex.exec(searchArea)) !== null) {
+      const rowHtml = trMatch[1];
+      if (/<th[\s>]/i.test(rowHtml)) continue;
+
+      const cells: string[] = [];
+      const tdRegex = /<td[^>]*>([\s\S]*?)<\/td>/gi;
+      let tdMatch: RegExpExecArray | null;
+      while ((tdMatch = tdRegex.exec(rowHtml)) !== null) {
+        cells.push(decodeEntities(stripTags(tdMatch[1])));
+      }
+
+      if (cells.length === 0 || cells[0].includes('No sessional') || cells[0].includes('No module') || cells[0].includes('empty')) {
+        continue;
+      }
+
+      const rawSubject = cells[subjectIdx] || '';
+      if (!rawSubject || rawSubject.toLowerCase().includes('no results') || rawSubject.toLowerCase().includes('no sessional')) {
+        continue;
+      }
+
+      // Clean subject code (e.g. "CST302 - COMPILER DESIGN" -> "CST302")
+      const subject = rawSubject.split('-')[0].trim();
+
+      // Determine assessment title
+      let examName = sectionTitle; // Default to table title (e.g., "Internal marks")
+      if (examNameIdx !== -1 && cells[examNameIdx]) {
+        examName = `${sectionTitle} - ${cells[examNameIdx].trim()}`;
+      }
+
+      // Parse marks
+      const maxVal = cells[maxMarksIdx] ? cells[maxMarksIdx].replace(/[^\d.]/g, '') : '';
+      const obtainedVal = cells[marksObtainedIdx] ? cells[marksObtainedIdx].trim() : '';
+
+      const total = parseFloat(maxVal) || 100;
+      let marks = parseFloat(obtainedVal.replace(/[^\d.]/g, ''));
+      let grade = '';
+
+      if (isNaN(marks)) {
+        if (obtainedVal === 'A') {
+          marks = 0;
+          grade = 'Absent';
+        } else {
+          // If no marks have been entered yet, skip this row
+          continue;
         }
       }
 
-      if (subjectResults.length > 0) {
-        results.push({ subject: sections[i].name, results: subjectResults });
+      let subjGroup = results.find((r) => r.subject === subject);
+      if (!subjGroup) {
+        subjGroup = { subject, results: [] };
+        results.push(subjGroup);
       }
+
+      subjGroup.results.push({
+        name: examName,
+        marks,
+        total,
+        grade,
+      });
     }
   }
 
-  // Strategy 2: Fallback — single table with subject column
+  // Fallback: If Strategy 1 parsed nothing, try Strategy 2 (single table with subject column)
   if (results.length === 0) {
     const rows = extractTableRows(html);
     const subjectMap = new Map<string, ResultEntry[]>();
 
     for (const cells of rows) {
       if (cells.length < 3) continue;
-      // Assume: [subject, examType, marks, total?, grade?]
       const subject = cells[0];
       const examName = cells[1];
       const nums = cells.slice(2).map((c) => parseFloat(c.replace(/[%\s]/g, ''))).filter((n) => !isNaN(n));
@@ -317,7 +372,13 @@ export function parseResults(html: string): SubjectResult[] {
     }
 
     for (const [subject, entries] of subjectMap) {
-      results.push({ subject, results: entries });
+      const cleanSubj = subject.split('-')[0].trim();
+      let subjGroup = results.find((r) => r.subject === cleanSubj);
+      if (!subjGroup) {
+        subjGroup = { subject: cleanSubj, results: [] };
+        results.push(subjGroup);
+      }
+      subjGroup.results.push(...entries);
     }
   }
 
