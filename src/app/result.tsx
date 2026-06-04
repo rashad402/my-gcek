@@ -303,6 +303,8 @@ const styles = StyleSheet.create({
     borderBottomColor: 'rgba(195, 198, 213, 0.05)',
   },
   resultInfo: {
+    flex: 1,
+    marginRight: Spacing.four,
     gap: 2,
   },
   examName: {
