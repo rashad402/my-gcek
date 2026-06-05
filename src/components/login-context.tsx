@@ -35,7 +35,7 @@ interface LoginContextType {
   /** Clear the session and return to the login screen. */
   logout: () => Promise<void>;
   /** Call when a data screen detects a session-expiry redirect. */
-  handleSessionExpired: () => void;
+  handleSessionExpired: () => void | Promise<void>;
 }
 
 const LoginContext = createContext<LoginContextType | undefined>(undefined);
@@ -91,15 +91,21 @@ export function LoginProvider({ children }: { children: ReactNode }) {
       const result = await loginToEtlab(user, password, persist);
 
       if (result.success) {
+        console.log('[Auth] Login successful for user:', user);
         setIsLoggedIn(true);
         setUsername(user);
         setStudentId(result.studentId);
 
         if (persist) {
           try {
+            console.log('[SECURESTORE WRITE]', KEY_USERNAME, typeof user, user.length);
             await SecureStore.setItemAsync(KEY_USERNAME, user);
+            
+            console.log('[SECURESTORE WRITE]', KEY_IS_LOGGED_IN, 'string', 4);
             await SecureStore.setItemAsync(KEY_IS_LOGGED_IN, 'true');
+            
             if (result.studentId) {
+              console.log('[SECURESTORE WRITE]', KEY_STUDENT_ID, typeof result.studentId, result.studentId.length);
               await SecureStore.setItemAsync(KEY_STUDENT_ID, result.studentId);
             }
           } catch {
@@ -110,6 +116,7 @@ export function LoginProvider({ children }: { children: ReactNode }) {
         return { success: true };
       }
 
+      console.log('[Auth] Login failed:', result.error);
       return { success: false, error: result.error };
     } catch (error: any) {
       // Network / unexpected errors
@@ -118,12 +125,14 @@ export function LoginProvider({ children }: { children: ReactNode }) {
         error?.message?.includes('fetch')
           ? 'Unable to connect to ETLAB. Please check your internet connection.'
           : 'An unexpected error occurred. Please try again.';
+      console.log('[Auth] Login error:', message);
       return { success: false, error: message };
     }
   };
 
   // ── Logout ──────────────────────────────────────────────────────────
   const logout = async () => {
+    console.log('[Auth] Logging out user and invalidating session');
     setIsLoggedIn(false);
     setUsername('');
     setStudentId('');
@@ -140,10 +149,15 @@ export function LoginProvider({ children }: { children: ReactNode }) {
   };
 
   // ── Session expiry handler ──────────────────────────────────────────
-  const handleSessionExpired = () => {
-    Alert.alert('Session Expired', 'Please log in again.', [
-      { text: 'OK', onPress: () => logout() },
-    ]);
+  const handleSessionExpired = async () => {
+    if (!isLoggedIn) return;
+    const valid = await validateSession();
+    if (!valid) {
+      console.log('[Auth] Session expired and invalidated. Prompting user for login.');
+      Alert.alert('Session Expired', 'Please log in again.', [
+        { text: 'OK', onPress: () => logout() },
+      ]);
+    }
   };
 
   return (

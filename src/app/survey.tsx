@@ -80,13 +80,14 @@ export default function SurveyScreen() {
   const scheme = colorScheme === 'dark' ? 'dark' : 'light';
   const colors = Colors[scheme];
 
-  const { handleSessionExpired } = useLogin();
+  const { isLoggedIn, handleSessionExpired } = useLogin();
   const [surveys, setSurveys] = useState<Survey[]>(dataCache.surveys || []);
   const [isLoading, setIsLoading] = useState(!dataCache.surveys);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
 
   const loadData = useCallback(async (showRefreshingSpinner = false) => {
+    if (!isLoggedIn) return;
     const hasCache = dataCache.surveys && dataCache.surveys.length > 0;
 
     if (showRefreshingSpinner) {
@@ -116,11 +117,13 @@ export default function SurveyScreen() {
       setIsLoading(false);
       setIsRefreshing(false);
     }
-  }, [handleSessionExpired]);
+  }, [isLoggedIn, handleSessionExpired]);
 
   useEffect(() => {
-    loadData();
-  }, [loadData]);
+    if (isLoggedIn) {
+      loadData();
+    }
+  }, [loadData, isLoggedIn]);
 
   return (
     <ProtectedScreen>

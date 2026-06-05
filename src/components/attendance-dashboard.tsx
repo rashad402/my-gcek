@@ -128,7 +128,7 @@ export default function AttendanceDashboard() {
   const scheme = colorScheme === 'dark' ? 'dark' : 'light';
   const colors = Colors[scheme];
 
-  const { studentId, handleSessionExpired } = useLogin();
+  const { studentId, isLoggedIn, handleSessionExpired } = useLogin();
 
   const [subjects, setSubjects] = useState<SubjectAttendance[]>(dataCache.attendance || []);
   const [isLoading, setIsLoading] = useState(!dataCache.attendance);
@@ -157,13 +157,16 @@ export default function AttendanceDashboard() {
   const updateTargetPercentage = async (val: number) => {
     setTargetPercentage(val);
     try {
-      await SecureStore.setItemAsync(KEY_TARGET_PERCENTAGE, val.toString());
+      const valStr = val.toString();
+      console.log('[SECURESTORE WRITE]', KEY_TARGET_PERCENTAGE, typeof valStr, valStr.length);
+      await SecureStore.setItemAsync(KEY_TARGET_PERCENTAGE, valStr);
     } catch (err) {
       console.error('Failed to save target percentage', err);
     }
   };
 
   const loadData = useCallback(async (showRefreshingSpinner = false) => {
+    if (!isLoggedIn) return;
     const hasCache = dataCache.attendance && dataCache.attendance.length > 0;
 
     if (showRefreshingSpinner) {
@@ -193,11 +196,13 @@ export default function AttendanceDashboard() {
       setIsLoading(false);
       setIsRefreshing(false);
     }
-  }, [studentId, handleSessionExpired]);
+  }, [studentId, isLoggedIn, handleSessionExpired]);
 
   useEffect(() => {
-    loadData();
-  }, [loadData]);
+    if (isLoggedIn) {
+      loadData();
+    }
+  }, [loadData, isLoggedIn]);
 
   // Compute cumulative standing
   const totalAttended = subjects.reduce((sum, s) => sum + s.attended, 0);

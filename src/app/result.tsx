@@ -94,13 +94,14 @@ export default function ResultScreen() {
   const scheme = colorScheme === 'dark' ? 'dark' : 'light';
   const colors = Colors[scheme];
 
-  const { handleSessionExpired } = useLogin();
+  const { isLoggedIn, handleSessionExpired } = useLogin();
   const [subjectResults, setSubjectResults] = useState<SubjectResult[]>(dataCache.results || []);
   const [isLoading, setIsLoading] = useState(!dataCache.results);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
 
   const loadData = useCallback(async (showRefreshingSpinner = false) => {
+    if (!isLoggedIn) return;
     const hasCache = dataCache.results && dataCache.results.length > 0;
 
     if (showRefreshingSpinner) {
@@ -130,11 +131,13 @@ export default function ResultScreen() {
       setIsLoading(false);
       setIsRefreshing(false);
     }
-  }, [handleSessionExpired]);
+  }, [isLoggedIn, handleSessionExpired]);
 
   useEffect(() => {
-    loadData();
-  }, [loadData]);
+    if (isLoggedIn) {
+      loadData();
+    }
+  }, [loadData, isLoggedIn]);
 
   return (
     <ProtectedScreen>

@@ -51,23 +51,6 @@ export function mergeCookies(older: string, newer: string): string {
   return Array.from(map.values()).join('; ');
 }
 
-/** Extract all set-cookie header values robustly. */
-function extractCookies(res: Response): string {
-  const headers = res.headers;
-  if (typeof headers.getSetCookie === 'function') {
-    return headers.getSetCookie()
-      .map((c) => c.split(';')[0].trim())
-      .filter(Boolean)
-      .join('; ');
-  }
-  const raw = headers.get('set-cookie');
-  if (!raw) return '';
-  return raw
-    .split(/,(?=\s*[A-Za-z_][A-Za-z0-9_]*=)/)
-    .map((c) => c.trim().split(';')[0])
-    .filter(Boolean)
-    .join('; ');
-}
 
 /** Extract the CSRF token from the ETLAB login page HTML. */
 function extractCsrfToken(html: string): string | null {
@@ -165,25 +148,29 @@ export interface LoginResult {
   error?: string;
 }
 
-/**
- * Authenticate against ETLAB using the two-step CSRF login.
- *
- * 1. GET login page → extract CSRF token
- * 2. POST credentials with token
- * 3. On success, native cookie jar automatically captures authenticated GCEKSESSIONID
- *
- * The password parameter is used only within this function and is never
- * stored, logged, or returned.
- */
+async function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function waitForSessionReady(
+  attempts = 4,
+  delayMs = 250,
+): Promise<boolean> {
+  for (let i = 0; i < attempts; i++) {
+    const ok = await validateSession();
+    if (ok) return true;
+    if (i < attempts - 1) {
+      await sleep(delayMs);
+    }
+  }
+  return false;
+}
+
 export async function loginToEtlab(
   username: string,
   password: string,
   rememberMe: boolean,
 ): Promise<LoginResult> {
-
-  // Browsers enforce CORS which prevents performing cross-site cookie-auth
-  // logins from web builds unless the backend enables CORS. Provide a
-  // clearer error message when running on web so users aren't left wondering.
   if (Platform.OS === 'web') {
     return {
       success: false,
@@ -192,22 +179,24 @@ export async function loginToEtlab(
         'Login from web is not supported: the ETLAB server blocks cross-origin requests. Run the app on a device/emulator or configure a CORS proxy.',
     };
   }
-  // ── Step 1: GET login page ──────────────────────────────────────────
-  // Fetch directly from user/login to avoid intermediate redirect from /
+
+  // Step 1: GET login page
   const loginPageRes = await fetch(`${BASE_URL}/user/login`, {
     headers: { 'User-Agent': 'MyGCEK/1.0' },
     credentials: 'include',
   });
+
   const loginPageHtml = await loginPageRes.text();
   const csrfToken = extractCsrfToken(loginPageHtml);
   const csrfFieldName = csrfToken ? extractCsrfFieldName(loginPageHtml) : '';
-  const cookies = extractCookies(loginPageRes);
 
-  // Introduce a 400ms delay to allow React Native's background thread
-  // to finish persisting cookies to the native cookie jar.
-  await new Promise((resolve) => setTimeout(resolve, 400));
+  // Introduce a small delay on iOS to allow the background cookie thread
+  // to finish persisting the CSRF cookie to the native cookie jar.
+  if (Platform.OS === 'ios') {
+    await sleep(300);
+  }
 
-  // ── Step 2: POST credentials ────────────────────────────────────────
+  // Step 2: POST credentials
   const formBody = new URLSearchParams();
   if (csrfToken && csrfFieldName) {
     formBody.append(csrfFieldName, csrfToken);
@@ -216,26 +205,25 @@ export async function loginToEtlab(
   formBody.append('LoginForm[password]', password);
   formBody.append('LoginForm[rememberMe]', rememberMe ? '1' : '0');
 
-  const postHeaders: Record<string, string> = {
-    'Content-Type': 'application/x-www-form-urlencoded',
-    'User-Agent': 'MyGCEK/1.0',
-  };
-  if (cookies) {
-    postHeaders['Cookie'] = cookies;
-  }
-
   const loginRes = await fetch(`${BASE_URL}/user/login`, {
     method: 'POST',
-    headers: postHeaders,
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'User-Agent': 'MyGCEK/1.0',
+      'Origin': BASE_URL,
+      'Referer': `${BASE_URL}/user/login`,
+      'X-Requested-With': 'XMLHttpRequest',
+    },
     body: formBody.toString(),
     credentials: 'include',
   });
 
   const responseHtml = await loginRes.text();
 
-  // ── Step 3: Check result ────────────────────────────────────────────
-  // If the returned page is the login page, then authentication failed.
-  if (responseHtml.includes('LoginForm[username]') || responseHtml.includes('LoginForm[password]')) {
+  if (
+    responseHtml.includes('LoginForm[username]') ||
+    responseHtml.includes('LoginForm[password]')
+  ) {
     return {
       success: false,
       studentId: '',
@@ -243,7 +231,7 @@ export async function loginToEtlab(
     };
   }
 
-  // Otherwise, we succeeded and followed redirect to the dashboard.
+  // Step 3: extract student ID if possible
   let studentId = extractStudentId(responseHtml) || '';
 
   if (!studentId) {
@@ -255,8 +243,19 @@ export async function loginToEtlab(
       const attPageHtml = await attPageRes.text();
       studentId = extractStudentId(attPageHtml) || '';
     } catch {
-      // Ignore network error, fallback to empty string
+      // ignore
     }
+  }
+
+  // Step 4: confirm the session is actually usable before declaring success
+  const sessionReady = await waitForSessionReady();
+  if (!sessionReady) {
+    return {
+      success: false,
+      studentId: '',
+      error:
+        'Login was accepted, but the session was not ready yet. Please try again.',
+    };
   }
 
   return {
@@ -307,7 +306,6 @@ export interface FetchPageResult {
  * Detects session expiry (redirect to login page).
  */
 export async function fetchPage(url: string): Promise<FetchPageResult> {
-
   const res = await fetch(url, {
     headers: { 'User-Agent': 'MyGCEK/1.0' },
     redirect: 'manual',
@@ -326,14 +324,20 @@ export async function fetchPage(url: string): Promise<FetchPageResult> {
       headers: { 'User-Agent': 'MyGCEK/1.0' },
       credentials: 'include',
     });
-    return { ok: true, html: await followRes.text(), sessionExpired: false };
+    const followHtml = await followRes.text();
+    if (followHtml.includes('LoginForm[username]') || followHtml.includes('LoginForm[password]')) {
+      return { ok: false, html: '', sessionExpired: true };
+    }
+    return { ok: true, html: followHtml, sessionExpired: false };
   }
 
   if (!res.ok) {
+    console.warn(`[Auth] Fetch failed for URL: ${url} with status: ${res.status}`);
     return { ok: false, html: '', sessionExpired: false };
   }
 
   const html = await res.text();
+
   // Double-check: if the response HTML is actually the login page
   if (html.includes('LoginForm[username]') || html.includes('LoginForm[password]')) {
     return { ok: false, html: '', sessionExpired: true };

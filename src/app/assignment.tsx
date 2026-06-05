@@ -64,13 +64,14 @@ export default function AssignmentScreen() {
   const scheme = colorScheme === 'dark' ? 'dark' : 'light';
   const colors = Colors[scheme];
 
-  const { handleSessionExpired } = useLogin();
+  const { isLoggedIn, handleSessionExpired } = useLogin();
   const [assignments, setAssignments] = useState<Assignment[]>(dataCache.assignments || []);
   const [isLoading, setIsLoading] = useState(!dataCache.assignments);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
 
   const loadData = useCallback(async (showRefreshingSpinner = false) => {
+    if (!isLoggedIn) return;
     const hasCache = dataCache.assignments && dataCache.assignments.length > 0;
 
     if (showRefreshingSpinner) {
@@ -100,11 +101,13 @@ export default function AssignmentScreen() {
       setIsLoading(false);
       setIsRefreshing(false);
     }
-  }, [handleSessionExpired]);
+  }, [isLoggedIn, handleSessionExpired]);
 
   useEffect(() => {
-    loadData();
-  }, [loadData]);
+    if (isLoggedIn) {
+      loadData();
+    }
+  }, [loadData, isLoggedIn]);
 
   return (
     <ProtectedScreen>
