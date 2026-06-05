@@ -278,17 +278,35 @@ export async function validateSession(): Promise<boolean> {
       redirect: 'manual',
       credentials: 'include',
     });
+
     // Redirect to login = expired
     if (res.status >= 300 && res.status < 400) {
       const location = res.headers.get('location') || '';
-      if (location.includes('login') || location === '/' || location === `${BASE_URL}/`) {
+      if (
+        location.includes('login') ||
+        location === '/' ||
+        location === `${BASE_URL}/`
+      ) {
         return false;
       }
     }
-    // 200 = session is alive
-    return res.status === 200;
+
+    if (!res.ok) {
+      return false;
+    }
+
+    const html = await res.text();
+
+    // Check if the response HTML is actually the login page
+    if (
+      html.includes('LoginForm[username]') ||
+      html.includes('LoginForm[password]')
+    ) {
+      return false;
+    }
+
+    return true;
   } catch {
-    // Network error — treat as unknown (not expired)
     return false;
   }
 }
