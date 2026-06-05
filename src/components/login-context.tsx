@@ -52,7 +52,6 @@ export function LoginProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     (async () => {
       try {
-        await dataCache.loadFromStorage();
         const savedLoggedIn = await SecureStore.getItemAsync(KEY_IS_LOGGED_IN);
         const savedUsername = await SecureStore.getItemAsync(KEY_USERNAME);
         const savedStudentId = await SecureStore.getItemAsync(KEY_STUDENT_ID);
@@ -61,17 +60,24 @@ export function LoginProvider({ children }: { children: ReactNode }) {
           // Validate the saved session is still alive
           const valid = await validateSession();
           if (valid) {
+            // Only load cache after session is verified valid
+            await dataCache.loadFromStorage();
             setIsLoggedIn(true);
             setUsername(savedUsername);
             setStudentId(savedStudentId || '');
           } else {
-            // Session expired — clear persisted data
+            // Session expired — clear persisted data and cache
+            await dataCache.clear();
             await clearPersistedSession();
             Alert.alert(
               'Session Expired',
               'Your saved session has expired. Please log in again.',
             );
           }
+        } else {
+          // No active session — clear cache and session flags to be safe
+          await dataCache.clear();
+          await clearPersistedSession();
         }
       } catch {
         // SecureStore unavailable — treat as logged-out
@@ -88,6 +94,9 @@ export function LoginProvider({ children }: { children: ReactNode }) {
     persist: boolean,
   ): Promise<{ success: boolean; error?: string }> => {
     try {
+      // Clear cache before authenticating to prevent cross-user contamination
+      await dataCache.clear();
+
       const result = await loginToEtlab(user, password, persist);
 
       if (result.success) {
