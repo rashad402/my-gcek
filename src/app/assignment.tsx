@@ -7,16 +7,16 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   RefreshControl,
+  useColorScheme,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Colors, Fonts, Spacing, Roundness } from '@/constants/theme';
-import { useColorScheme } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { ProtectedScreen } from '@/components/protected-screen';
 import { ProfileButton } from '@/components/profile-button';
 import { useLogin } from '@/components/login-context';
 import { fetchAssignments } from '@/services/etlab-api';
-import { parseAssignments, Assignment, AssignmentStatus } from '@/services/etlab-parser';
+import { parseAssignments, Assignment } from '@/services/etlab-parser';
 import { dataCache } from '@/services/data-cache';
 
 interface AssignmentCardProps {

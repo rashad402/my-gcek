@@ -9,16 +9,16 @@ import {
   RefreshControl,
   Linking,
   Alert,
+  useColorScheme,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Colors, Fonts, Spacing, Roundness } from '@/constants/theme';
-import { useColorScheme } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { ProtectedScreen } from '@/components/protected-screen';
 import { ProfileButton } from '@/components/profile-button';
 import { useLogin } from '@/components/login-context';
 import { fetchSurveys } from '@/services/etlab-api';
-import { parseSurveys, Survey, SurveyStatus } from '@/services/etlab-parser';
+import { parseSurveys, Survey } from '@/services/etlab-parser';
 import { dataCache } from '@/services/data-cache';
 
 interface SurveyCardProps {

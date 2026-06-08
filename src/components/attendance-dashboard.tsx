@@ -7,12 +7,12 @@ import {
   RefreshControl,
   ActivityIndicator,
   TouchableOpacity,
+  useColorScheme,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLogin } from './login-context';
 import { ProfileButton } from './profile-button';
 import { Colors, Fonts, Spacing, Roundness } from '@/constants/theme';
-import { useColorScheme } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { fetchAttendance } from '@/services/etlab-api';
 import { parseAttendance, SubjectAttendance } from '@/services/etlab-parser';
