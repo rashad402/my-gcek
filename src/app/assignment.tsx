@@ -11,6 +11,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Colors, Fonts, Spacing, Roundness } from '@/constants/theme';
 import { useColorScheme } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { ProtectedScreen } from '@/components/protected-screen';
 import { ProfileButton } from '@/components/profile-button';
 import { useLogin } from '@/components/login-context';
@@ -48,7 +49,10 @@ function AssignmentCard({ assignment, colors }: AssignmentCardProps) {
   return (
     <View style={[styles.assignCard, { backgroundColor: colors.surfaceLowest, borderColor: colors.outlineVariant }]}>
       <View style={styles.assignHeader}>
-        <Text style={[styles.assignTitle, { color: colors.text }]}>📖 {title}</Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.one, flex: 1 }}>
+          <Ionicons name="document-text-outline" size={16} color={colors.primary} />
+          <Text style={[styles.assignTitle, { color: colors.text }]}>{title}</Text>
+        </View>
         <View style={[styles.statusBadge, { backgroundColor: badgeBg }]}>
           <Text style={[styles.statusText, { color: badgeText }]}>{label}</Text>
         </View>
@@ -73,6 +77,12 @@ export default function AssignmentScreen() {
   const loadData = useCallback(async (showRefreshingSpinner = false) => {
     if (!isLoggedIn) return;
     const hasCache = dataCache.assignments && dataCache.assignments.length > 0;
+    const isStale = dataCache.isStale('assignments');
+
+    // Skip network request if we have fresh cached data and aren't forcing a refresh
+    if (hasCache && !isStale && !showRefreshingSpinner) {
+      return;
+    }
 
     if (showRefreshingSpinner) {
       setIsRefreshing(true);
@@ -143,7 +153,7 @@ export default function AssignmentScreen() {
           >
             {assignments.length === 0 ? (
               <View style={[styles.placeholderCard, { backgroundColor: colors.surfaceContainer }]}>
-                <Text style={styles.placeholderEmoji}>📝</Text>
+                <Ionicons name="document-text-outline" size={40} color={colors.textSecondary} style={{ marginBottom: Spacing.one }} />
                 <Text style={[styles.placeholderTitle, { color: colors.text }]}>
                   No Assignments Found
                 </Text>

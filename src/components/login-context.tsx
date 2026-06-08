@@ -129,9 +129,11 @@ export function LoginProvider({ children }: { children: ReactNode }) {
       return { success: false, error: result.error };
     } catch (error: any) {
       // Network / unexpected errors
-      const message =
-        error?.message?.includes('Network request failed') ||
-        error?.message?.includes('fetch')
+      const isTimeout = error?.name === 'AbortError' || error?.message?.includes('timeout') || error?.message?.includes('timed out');
+      const message = isTimeout
+        ? 'Connection timed out. GCEK ETLAB is taking too long to respond. Please try again.'
+        : error?.message?.includes('Network request failed') ||
+          error?.message?.includes('fetch')
           ? 'Unable to connect to ETLAB. Please check your internet connection.'
           : 'An unexpected error occurred. Please try again.';
       console.log('[Auth] Login error:', message);

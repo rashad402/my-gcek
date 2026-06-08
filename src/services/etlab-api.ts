@@ -152,6 +152,46 @@ async function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/**
+ * Fetch wrapper that adds timeout (using AbortController) and auto-retry
+ * for transient network errors (timeouts or offline failures).
+ */
+async function fetchWithTimeout(
+  url: string,
+  options: RequestInit = {},
+  timeoutMs = 12000,
+  retries = 2
+): Promise<Response> {
+  let attempt = 0;
+  while (attempt <= retries) {
+    const controller = new AbortController();
+    const id = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const response = await fetch(url, {
+        ...options,
+        signal: controller.signal,
+      });
+      clearTimeout(id);
+      return response;
+    } catch (error: any) {
+      clearTimeout(id);
+      const isTimeout = error.name === 'AbortError';
+      const isNetworkError =
+        error.message?.includes('Network request failed') ||
+        error.message?.includes('fetch');
+      
+      if ((isTimeout || isNetworkError) && attempt < retries) {
+        attempt++;
+        console.warn(`[Network] Attempt ${attempt} failed for URL: ${url}. Retrying in ${500 * attempt}ms...`);
+        await sleep(500 * attempt);
+        continue;
+      }
+      throw error;
+    }
+  }
+  throw new Error('Request failed after retries');
+}
+
 async function waitForSessionReady(
   attempts = 4,
   delayMs = 250,
@@ -181,10 +221,10 @@ export async function loginToEtlab(
   }
 
   // Step 1: GET login page
-  const loginPageRes = await fetch(`${BASE_URL}/user/login`, {
+  const loginPageRes = await fetchWithTimeout(`${BASE_URL}/user/login`, {
     headers: { 'User-Agent': 'MyGCEK/1.0' },
     credentials: 'include',
-  });
+  }, 12000, 2);
 
   const loginPageHtml = await loginPageRes.text();
   const csrfToken = extractCsrfToken(loginPageHtml);
@@ -205,7 +245,7 @@ export async function loginToEtlab(
   formBody.append('LoginForm[password]', password);
   formBody.append('LoginForm[rememberMe]', rememberMe ? '1' : '0');
 
-  const loginRes = await fetch(`${BASE_URL}/user/login`, {
+  const loginRes = await fetchWithTimeout(`${BASE_URL}/user/login`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/x-www-form-urlencoded',
@@ -216,7 +256,7 @@ export async function loginToEtlab(
     },
     body: formBody.toString(),
     credentials: 'include',
-  });
+  }, 15000, 2);
 
   const responseHtml = await loginRes.text();
 
@@ -236,10 +276,10 @@ export async function loginToEtlab(
 
   if (!studentId) {
     try {
-      const attPageRes = await fetch(`${BASE_URL}/student/attendance`, {
+      const attPageRes = await fetchWithTimeout(`${BASE_URL}/student/attendance`, {
         headers: { 'User-Agent': 'MyGCEK/1.0' },
         credentials: 'include',
-      });
+      }, 10000, 1);
       const attPageHtml = await attPageRes.text();
       studentId = extractStudentId(attPageHtml) || '';
     } catch {
@@ -273,41 +313,12 @@ export async function loginToEtlab(
  */
 export async function validateSession(): Promise<boolean> {
   try {
-    const res = await fetch(`${BASE_URL}/ktuacademics/student/results`, {
-      headers: { 'User-Agent': 'MyGCEK/1.0' },
-      redirect: 'manual',
-      credentials: 'include',
-    });
-
-    // Redirect to login = expired
-    if (res.status >= 300 && res.status < 400) {
-      const location = res.headers.get('location') || '';
-      if (
-        location.includes('login') ||
-        location === '/' ||
-        location === `${BASE_URL}/`
-      ) {
-        return false;
-      }
-    }
-
-    if (!res.ok) {
-      return false;
-    }
-
-    const html = await res.text();
-
-    // Check if the response HTML is actually the login page
-    if (
-      html.includes('LoginForm[username]') ||
-      html.includes('LoginForm[password]')
-    ) {
-      return false;
-    }
-
+    const res = await fetchPage(`${BASE_URL}/ktuacademics/student/results`);
+    return res.ok && !res.sessionExpired;
+  } catch (err) {
+    console.warn('[Session] validation network/unexpected error:', err);
+    // Network error — treat as unknown (not expired) to allow offline cache usage
     return true;
-  } catch {
-    return false;
   }
 }
 
@@ -324,11 +335,11 @@ export interface FetchPageResult {
  * Detects session expiry (redirect to login page).
  */
 export async function fetchPage(url: string): Promise<FetchPageResult> {
-  const res = await fetch(url, {
+  const res = await fetchWithTimeout(url, {
     headers: { 'User-Agent': 'MyGCEK/1.0' },
     redirect: 'manual',
     credentials: 'include',
-  });
+  }, 12000, 2);
 
   // Redirect to login = session expired
   if (res.status >= 300 && res.status < 400) {
@@ -338,10 +349,10 @@ export async function fetchPage(url: string): Promise<FetchPageResult> {
     }
     // Non-login redirect — follow it
     const absUrl = location.startsWith('http') ? location : `${BASE_URL}${location}`;
-    const followRes = await fetch(absUrl, {
+    const followRes = await fetchWithTimeout(absUrl, {
       headers: { 'User-Agent': 'MyGCEK/1.0' },
       credentials: 'include',
-    });
+    }, 12000, 2);
     const followHtml = await followRes.text();
     if (followHtml.includes('LoginForm[username]') || followHtml.includes('LoginForm[password]')) {
       return { ok: false, html: '', sessionExpired: true };

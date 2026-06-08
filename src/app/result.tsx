@@ -13,6 +13,7 @@ import { ProtectedScreen } from '@/components/protected-screen';
 import { ProfileButton } from '@/components/profile-button';
 import { Colors, Fonts, Spacing, Roundness } from '@/constants/theme';
 import { useColorScheme } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { useLogin } from '@/components/login-context';
 import { fetchResults } from '@/services/etlab-api';
 import { parseResults, SubjectResult, ResultEntry } from '@/services/etlab-parser';
@@ -42,7 +43,7 @@ function SubjectResultCard({ subject, subjectName, results, colors }: SubjectRes
       >
         <View style={styles.cardLeft}>
           <View style={[styles.iconCircle, { backgroundColor: 'rgba(9, 76, 178, 0.08)' }]}>
-            <Text style={styles.iconEmoji}>📚</Text>
+            <Ionicons name="book-outline" size={20} color={colors.primary} />
           </View>
           <View style={styles.cardHeaderText}>
             <Text style={[styles.subjectTitle, { color: colors.text }]}>
@@ -55,7 +56,11 @@ function SubjectResultCard({ subject, subjectName, results, colors }: SubjectRes
         </View>
         <View style={styles.cardRight}>
           <Text style={[styles.percentageText, { color: colors.primary }]}>{percentage}%</Text>
-          <Text style={[styles.chevronText, { color: colors.textSecondary }]}>{expanded ? '▲' : '▼'}</Text>
+          <Ionicons 
+            name={expanded ? "chevron-up" : "chevron-down"} 
+            size={18} 
+            color={colors.textSecondary} 
+          />
         </View>
       </TouchableOpacity>
 
@@ -64,25 +69,52 @@ function SubjectResultCard({ subject, subjectName, results, colors }: SubjectRes
           <View style={[styles.divider, { backgroundColor: colors.outlineVariant }]} />
           <View style={styles.resultRow}>
             <View style={styles.resultInfo}>
-              <Text style={[styles.examName, { color: colors.text }]}>Course Code</Text>
+              <Text style={[styles.examName, { color: colors.text, fontFamily: Fonts.bodyBold }]}>Course Code</Text>
             </View>
             <Text style={[styles.marksText, { color: colors.textSecondary }]}>
               {subject}
             </Text>
           </View>
-          {results.map((res, idx) => (
-            <View key={idx} style={styles.resultRow}>
-              <View style={styles.resultInfo}>
-                <Text style={[styles.examName, { color: colors.text }]}>{res.name}</Text>
-                {res.grade ? (
-                  <Text style={[styles.gradeText, { color: colors.textSecondary }]}>Grade: {res.grade}</Text>
-                ) : null}
+          {results.map((res, idx) => {
+            const ratio = res.total > 0 ? res.marks / res.total : 0;
+            const pct = Math.round(ratio * 100);
+            
+            // Color based on performance
+            let progressBarColor = colors.primary;
+            if (pct < 50) {
+              progressBarColor = colors.error;
+            } else if (pct < 75) {
+              progressBarColor = '#d97706'; // warning orange
+            }
+
+            return (
+              <View key={idx} style={styles.resultItemContainer}>
+                <View style={styles.resultRow}>
+                  <View style={styles.resultInfo}>
+                    <Text style={[styles.examName, { color: colors.text }]}>{res.name}</Text>
+                    {res.grade ? (
+                      <Text style={[styles.gradeText, { color: colors.textSecondary }]}>Grade: {res.grade}</Text>
+                    ) : null}
+                  </View>
+                  <Text style={[styles.marksText, { color: colors.text }]}>
+                    {res.marks} <Text style={{ color: colors.textSecondary, fontSize: 12 }}>/ {res.total}</Text>
+                  </Text>
+                </View>
+                {res.total > 0 && (
+                  <View style={styles.progressBarWrapper}>
+                    <View style={[styles.progressBarBackground, { backgroundColor: colors.surfaceLow }]} />
+                    <View style={[
+                      styles.progressBarFill, 
+                      { 
+                        width: `${Math.min(100, Math.max(0, pct))}%`, 
+                        backgroundColor: progressBarColor 
+                      }
+                    ]} />
+                  </View>
+                )}
               </View>
-              <Text style={[styles.marksText, { color: colors.text }]}>
-                {res.marks} <Text style={{ color: colors.textSecondary, fontSize: 12 }}>/ {res.total}</Text>
-              </Text>
-            </View>
-          ))}
+            );
+          })}
         </View>
       )}
     </View>
@@ -103,6 +135,12 @@ export default function ResultScreen() {
   const loadData = useCallback(async (showRefreshingSpinner = false) => {
     if (!isLoggedIn) return;
     const hasCache = dataCache.results && dataCache.results.length > 0;
+    const isStale = dataCache.isStale('results');
+
+    // Skip network request if we have fresh cached data and aren't forcing a refresh
+    if (hasCache && !isStale && !showRefreshingSpinner) {
+      return;
+    }
 
     if (showRefreshingSpinner) {
       setIsRefreshing(true);
@@ -387,5 +425,30 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 18,
     textAlign: 'center',
+  },
+  resultItemContainer: {
+    paddingVertical: Spacing.half,
+  },
+  progressBarWrapper: {
+    height: 4,
+    width: '100%',
+    position: 'relative',
+    marginTop: 2,
+    marginBottom: Spacing.one,
+  },
+  progressBarBackground: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: 0,
+    bottom: 0,
+    borderRadius: 2,
+  },
+  progressBarFill: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    bottom: 0,
+    borderRadius: 2,
   },
 });

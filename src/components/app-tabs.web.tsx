@@ -7,6 +7,7 @@ import {
   TabListProps,
 } from 'expo-router/ui';
 import { Pressable, useColorScheme, View, Text, StyleSheet } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 
 import { useLogin } from './login-context';
 import { ThemedText } from './themed-text';
@@ -23,18 +24,20 @@ export default function AppTabs() {
       <TabList asChild>
         <CustomTabList>
           <TabTrigger name="home" href="/" asChild>
-            <TabButton>📅 {isLoggedIn ? "Attendance" : "Login"}</TabButton>
+            <TabButton icon={isLoggedIn ? "calendar" : "log-in"}>
+              {isLoggedIn ? "Attendance" : "Login"}
+            </TabButton>
           </TabTrigger>
           {isLoggedIn && (
             <>
               <TabTrigger name="result" href="/result" asChild>
-                <TabButton>⭐ Result</TabButton>
+                <TabButton icon="star">Result</TabButton>
               </TabTrigger>
               <TabTrigger name="assignment" href="/assignment" asChild>
-                <TabButton>📝 Assignment</TabButton>
+                <TabButton icon="document-text">Assignment</TabButton>
               </TabTrigger>
               <TabTrigger name="survey" href="/survey" asChild>
-                <TabButton>📋 Survey</TabButton>
+                <TabButton icon="checkbox">Survey</TabButton>
               </TabTrigger>
             </>
           )}
@@ -44,12 +47,25 @@ export default function AppTabs() {
   );
 }
 
-export function TabButton({ children, isFocused, ...props }: TabTriggerSlotProps) {
+export function TabButton({ children, isFocused, icon, ...props }: TabTriggerSlotProps & { icon?: keyof typeof Ionicons.glyphMap }) {
+  const scheme = useColorScheme();
+  const colors = Colors[scheme === 'dark' ? 'dark' : 'light'];
+
   return (
     <Pressable {...props} style={({ pressed }) => pressed && styles.pressed}>
       <ThemedView
         type={isFocused ? 'backgroundSelected' : 'backgroundElement'}
-        style={styles.tabButtonView}>
+        style={[
+          styles.tabButtonView,
+          { flexDirection: 'row', alignItems: 'center', gap: Spacing.one }
+        ]}>
+        {icon && (
+          <Ionicons 
+            name={isFocused ? icon : (`${icon}-outline` as any)} 
+            size={16} 
+            color={isFocused ? colors.primary : colors.textSecondary} 
+          />
+        )}
         <ThemedText type="small" themeColor={isFocused ? 'text' : 'textSecondary'}>
           {children}
         </ThemedText>
@@ -57,6 +73,7 @@ export function TabButton({ children, isFocused, ...props }: TabTriggerSlotProps
     </Pressable>
   );
 }
+
 export function CustomTabList(props: TabListProps) {
   const scheme = useColorScheme();
   const colors = Colors[scheme === 'dark' ? 'dark' : 'light'];
@@ -73,9 +90,16 @@ export function CustomTabList(props: TabListProps) {
 
         {isLoggedIn && (
           <Pressable onPress={() => logout()} style={({ pressed }) => pressed && styles.pressed}>
-            <ThemedView type="backgroundElement" style={[styles.tabButtonView, styles.logoutButtonView]}>
+            <ThemedView 
+              type="backgroundElement" 
+              style={[
+                styles.tabButtonView, 
+                styles.logoutButtonView,
+                { flexDirection: 'row', alignItems: 'center', gap: Spacing.one }
+              ]}>
+              <Ionicons name="log-out-outline" size={15} color={colors.error} />
               <ThemedText type="smallBold" style={{ color: colors.error }}>
-                🚪 Log Out
+                Log Out
               </ThemedText>
             </ThemedView>
           </Pressable>

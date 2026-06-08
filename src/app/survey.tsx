@@ -13,6 +13,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Colors, Fonts, Spacing, Roundness } from '@/constants/theme';
 import { useColorScheme } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { ProtectedScreen } from '@/components/protected-screen';
 import { ProfileButton } from '@/components/profile-button';
 import { useLogin } from '@/components/login-context';
@@ -63,7 +64,10 @@ function SurveyCard({ survey, colors }: SurveyCardProps) {
       disabled={!url}
     >
       <View style={styles.surveyHeader}>
-        <Text style={[styles.surveyTitle, { color: colors.text }]}>📋 {title}</Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.one, flex: 1 }}>
+          <Ionicons name="checkbox-outline" size={16} color={colors.primary} />
+          <Text style={[styles.surveyTitle, { color: colors.text }]}>{title}</Text>
+        </View>
         <View style={[styles.statusBadge, { backgroundColor: badgeBg }]}>
           <Text style={[styles.statusText, { color: badgeText }]}>{label}</Text>
         </View>
@@ -89,6 +93,12 @@ export default function SurveyScreen() {
   const loadData = useCallback(async (showRefreshingSpinner = false) => {
     if (!isLoggedIn) return;
     const hasCache = dataCache.surveys && dataCache.surveys.length > 0;
+    const isStale = dataCache.isStale('surveys');
+
+    // Skip network request if we have fresh cached data and aren't forcing a refresh
+    if (hasCache && !isStale && !showRefreshingSpinner) {
+      return;
+    }
 
     if (showRefreshingSpinner) {
       setIsRefreshing(true);
@@ -159,7 +169,7 @@ export default function SurveyScreen() {
           >
             {surveys.length === 0 ? (
               <View style={[styles.placeholderCard, { backgroundColor: colors.surfaceContainer }]}>
-                <Text style={styles.placeholderEmoji}>📋</Text>
+                <Ionicons name="checkbox-outline" size={40} color={colors.textSecondary} style={{ marginBottom: Spacing.one }} />
                 <Text style={[styles.placeholderTitle, { color: colors.text }]}>
                   No Surveys Found
                 </Text>
@@ -174,9 +184,10 @@ export default function SurveyScreen() {
             )}
 
             {/* Info card */}
-            <View style={[styles.infoCard, { backgroundColor: colors.surfaceContainer }]}>
-              <Text style={[styles.infoText, { color: colors.textSecondary }]}>
-                ℹ️ Surveys are typically available during the last two weeks of each semester. Your responses are anonymous and help improve teaching quality.
+            <View style={[styles.infoCard, { backgroundColor: colors.surfaceContainer, flexDirection: 'row', gap: Spacing.two, alignItems: 'flex-start' }]}>
+              <Ionicons name="information-circle-outline" size={16} color={colors.textSecondary} style={{ marginTop: 1 }} />
+              <Text style={[styles.infoText, { color: colors.textSecondary, flex: 1, textAlign: 'left' }]}>
+                Surveys are typically available during the last two weeks of each semester. Your responses are anonymous and help improve teaching quality.
               </Text>
             </View>
           </ScrollView>

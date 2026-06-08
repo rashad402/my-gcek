@@ -1,20 +1,28 @@
 import { Tabs } from 'expo-router';
-import { View, Text, StyleSheet, useColorScheme, Platform } from 'react-native';
+import { View, StyleSheet, useColorScheme, Platform } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { useLogin } from './login-context';
-import { Colors, Fonts, Spacing, Roundness } from '@/constants/theme';
+import { Colors, Fonts, Roundness } from '@/constants/theme';
 
 /**
- * Tab bar icon component using emoji/text to avoid external icon dependencies.
- * Matches the Material Symbols icons from the Stitch design:
- *   Attendance → calendar_today → 📅
- *   Result     → grade         → ⭐
- *   Assignment → assignment    → 📋
- *   Survey     → poll          → 📊
+ * Tab bar icon component using Ionicons for native vector styling.
+ * Renders as a premium pill-shaped indicator when active.
  */
-function TabIcon({ emoji, focused, color }: { emoji: string; focused: boolean; color: string }) {
+function TabIcon({ name, focused, color }: { name: keyof typeof Ionicons.glyphMap; focused: boolean; color: string }) {
+  const colorScheme = useColorScheme();
+  const scheme = colorScheme === 'dark' ? 'dark' : 'light';
+  const colors = Colors[scheme];
+
   return (
-    <View style={[styles.iconContainer, focused && styles.iconContainerActive]}>
-      <Text style={[styles.iconEmoji, { opacity: focused ? 1 : 0.7 }]}>{emoji}</Text>
+    <View style={[
+      styles.iconContainer,
+      focused && { backgroundColor: `${colors.primary}1A` } // 10% opacity primary color
+    ]}>
+      <Ionicons 
+        name={focused ? name : (`${name}-outline` as any)} 
+        size={20} 
+        color={color} 
+      />
     </View>
   );
 }
@@ -35,7 +43,7 @@ export default function AppTabs() {
           borderTopColor: colors.outlineVariant,
           borderTopWidth: 0,
           paddingTop: 8,
-          paddingBottom: Platform.OS === 'ios' ? 24 : 28,
+          paddingBottom: Platform.OS === 'ios' ? 24 : 12,
           height: Platform.OS === 'ios' ? 84 : 68,
           shadowColor: '#000',
           shadowOffset: { width: 0, height: -2 },
@@ -61,7 +69,7 @@ export default function AppTabs() {
           title: isLoggedIn ? 'Attendance' : 'Login',
           tabBarLabel: isLoggedIn ? 'Attendance' : 'Login',
           tabBarIcon: ({ focused, color }) => (
-            <TabIcon emoji="📅" focused={focused} color={color} />
+            <TabIcon name={isLoggedIn ? 'calendar' : 'log-in'} focused={focused} color={color} />
           ),
         }}
       />
@@ -74,7 +82,7 @@ export default function AppTabs() {
           tabBarLabel: 'Result',
           href: isLoggedIn ? undefined : null,
           tabBarIcon: ({ focused, color }) => (
-            <TabIcon emoji="⭐" focused={focused} color={color} />
+            <TabIcon name="star" focused={focused} color={color} />
           ),
         }}
       />
@@ -87,7 +95,7 @@ export default function AppTabs() {
           tabBarLabel: 'Assignment',
           href: isLoggedIn ? undefined : null,
           tabBarIcon: ({ focused, color }) => (
-            <TabIcon emoji="📝" focused={focused} color={color} />
+            <TabIcon name="document-text" focused={focused} color={color} />
           ),
         }}
       />
@@ -100,7 +108,7 @@ export default function AppTabs() {
           tabBarLabel: 'Survey',
           href: isLoggedIn ? undefined : null,
           tabBarIcon: ({ focused, color }) => (
-            <TabIcon emoji="📋" focused={focused} color={color} />
+            <TabIcon name="checkbox" focused={focused} color={color} />
           ),
         }}
       />
@@ -110,16 +118,10 @@ export default function AppTabs() {
 
 const styles = StyleSheet.create({
   iconContainer: {
-    width: 28,
-    height: 28,
+    width: 56,
+    height: 30,
     justifyContent: 'center',
     alignItems: 'center',
-    borderRadius: Roundness.full,
-  },
-  iconContainerActive: {
-    // Subtle active highlight matching Stitch's primary-container/20 indicator
-  },
-  iconEmoji: {
-    fontSize: 18,
+    borderRadius: Roundness.xl,
   },
 });

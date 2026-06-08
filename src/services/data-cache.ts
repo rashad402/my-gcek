@@ -7,6 +7,20 @@ export const dataCache = {
   assignments: null as any[] | null,
   surveys: null as any[] | null,
 
+  lastUpdated: {
+    attendance: 0,
+    results: 0,
+    assignments: 0,
+    surveys: 0,
+  },
+
+  /** Check if the cache is stale (older than TTL) */
+  isStale(key: 'attendance' | 'results' | 'assignments' | 'surveys', ttlMs = 10 * 60 * 1000): boolean {
+    const lastTime = this.lastUpdated[key];
+    if (!lastTime) return true;
+    return Date.now() - lastTime > ttlMs;
+  },
+
   /** Load all caches from AsyncStorage during app startup */
   async loadFromStorage() {
     // 1. Proactively clear legacy SecureStore cache keys if they exist
@@ -38,16 +52,32 @@ export const dataCache = {
     // 2. Load caches from AsyncStorage
     try {
       const att = await AsyncStorage.getItem('cache_attendance');
-      if (att) this.attendance = JSON.parse(att);
+      if (att) {
+        const parsed = parseStoredCache(att);
+        this.attendance = parsed.data;
+        this.lastUpdated.attendance = parsed.timestamp;
+      }
       
       const res = await AsyncStorage.getItem('cache_results');
-      if (res) this.results = JSON.parse(res);
+      if (res) {
+        const parsed = parseStoredCache(res);
+        this.results = parsed.data;
+        this.lastUpdated.results = parsed.timestamp;
+      }
       
       const ass = await AsyncStorage.getItem('cache_assignments');
-      if (ass) this.assignments = JSON.parse(ass);
+      if (ass) {
+        const parsed = parseStoredCache(ass);
+        this.assignments = parsed.data;
+        this.lastUpdated.assignments = parsed.timestamp;
+      }
       
       const surv = await AsyncStorage.getItem('cache_surveys');
-      if (surv) this.surveys = JSON.parse(surv);
+      if (surv) {
+        const parsed = parseStoredCache(surv);
+        this.surveys = parsed.data;
+        this.lastUpdated.surveys = parsed.timestamp;
+      }
     } catch (e) {
       console.warn('Failed to load cache from AsyncStorage:', e);
     }
@@ -55,8 +85,9 @@ export const dataCache = {
 
   async setAttendance(data: any[]) {
     this.attendance = data;
+    this.lastUpdated.attendance = Date.now();
     try {
-      const valStr = JSON.stringify(data);
+      const valStr = JSON.stringify({ data, timestamp: this.lastUpdated.attendance });
       await AsyncStorage.setItem('cache_attendance', valStr);
     } catch (err) {
       console.warn('Failed to write attendance cache to AsyncStorage:', err);
@@ -65,8 +96,9 @@ export const dataCache = {
 
   async setResults(data: any[]) {
     this.results = data;
+    this.lastUpdated.results = Date.now();
     try {
-      const valStr = JSON.stringify(data);
+      const valStr = JSON.stringify({ data, timestamp: this.lastUpdated.results });
       await AsyncStorage.setItem('cache_results', valStr);
     } catch (err) {
       console.warn('Failed to write results cache to AsyncStorage:', err);
@@ -75,8 +107,9 @@ export const dataCache = {
 
   async setAssignments(data: any[]) {
     this.assignments = data;
+    this.lastUpdated.assignments = Date.now();
     try {
-      const valStr = JSON.stringify(data);
+      const valStr = JSON.stringify({ data, timestamp: this.lastUpdated.assignments });
       await AsyncStorage.setItem('cache_assignments', valStr);
     } catch (err) {
       console.warn('Failed to write assignments cache to AsyncStorage:', err);
@@ -85,8 +118,9 @@ export const dataCache = {
 
   async setSurveys(data: any[]) {
     this.surveys = data;
+    this.lastUpdated.surveys = Date.now();
     try {
-      const valStr = JSON.stringify(data);
+      const valStr = JSON.stringify({ data, timestamp: this.lastUpdated.surveys });
       await AsyncStorage.setItem('cache_surveys', valStr);
     } catch (err) {
       console.warn('Failed to write surveys cache to AsyncStorage:', err);
@@ -99,6 +133,12 @@ export const dataCache = {
     this.results = null;
     this.assignments = null;
     this.surveys = null;
+    this.lastUpdated = {
+      attendance: 0,
+      results: 0,
+      assignments: 0,
+      surveys: 0,
+    };
     try {
       await AsyncStorage.removeItem('cache_attendance');
       await AsyncStorage.removeItem('cache_results');
@@ -109,3 +149,20 @@ export const dataCache = {
     }
   }
 };
+
+/** Helper to parse AsyncStorage cache entries while preserving compatibility with legacy plain JSON arrays */
+function parseStoredCache(str: string): { data: any[] | null; timestamp: number } {
+  try {
+    const parsed = JSON.parse(str);
+    if (parsed && typeof parsed === 'object' && 'data' in parsed && 'timestamp' in parsed) {
+      return { data: parsed.data, timestamp: parsed.timestamp };
+    }
+    if (Array.isArray(parsed)) {
+      return { data: parsed, timestamp: 0 }; // Legacy cache: treat as expired
+    }
+  } catch (e) {
+    console.warn('Failed to parse cache entry:', e);
+  }
+  return { data: null, timestamp: 0 };
+}
+

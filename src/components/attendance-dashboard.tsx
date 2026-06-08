@@ -13,6 +13,7 @@ import { useLogin } from './login-context';
 import { ProfileButton } from './profile-button';
 import { Colors, Fonts, Spacing, Roundness } from '@/constants/theme';
 import { useColorScheme } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { fetchAttendance } from '@/services/etlab-api';
 import { parseAttendance, SubjectAttendance } from '@/services/etlab-parser';
 import { dataCache } from '@/services/data-cache';
@@ -32,7 +33,7 @@ interface SubjectCardProps {
 
 function getSubjectName(code: string): string {
   const cleanCode = code.trim().toUpperCase();
-  
+
   // 1. Try to find in dynamic results cache
   if (dataCache.results) {
     const found = dataCache.results.find(r => r.subject.trim().toUpperCase() === cleanCode);
@@ -40,7 +41,7 @@ function getSubjectName(code: string): string {
       return found.subjectName;
     }
   }
-  
+
   // 2. Fallback to static mapping for common GCEK courses
   const staticMap: Record<string, string> = {
     'CST302': 'Compiler Design',
@@ -52,7 +53,7 @@ function getSubjectName(code: string): string {
     'CSD334': 'Miniproject',
     'CST362': 'Programming in Python',
   };
-  
+
   return staticMap[cleanCode] || code;
 }
 
@@ -67,33 +68,54 @@ function SubjectCard({
   colors,
   targetPercentage,
 }: SubjectCardProps) {
+  const [expanded, setExpanded] = useState(false);
+  const [simAtt, setSimAtt] = useState(0);
+  const [simMiss, setSimMiss] = useState(0);
+
+  const toggleExpand = () => {
+    if (expanded) {
+      setSimAtt(0);
+      setSimMiss(0);
+    }
+    setExpanded(!expanded);
+  };
+
   const isHigh = percentage >= targetPercentage;
   const progressColor = isHigh ? colors.primary : colors.error;
   const displayName = getSubjectName(subject);
 
   return (
     <View style={[styles.card, { backgroundColor: colors.surfaceLowest, borderColor: colors.outlineVariant }]}>
-      <View style={styles.cardHeader}>
+      <TouchableOpacity
+        style={styles.cardHeader}
+        onPress={toggleExpand}
+        activeOpacity={0.75}
+      >
         <View style={styles.cardInfo}>
-          <Text style={[styles.cardTitle, { color: colors.text }]} numberOfLines={2}>📖 {displayName}</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.one, flexWrap: 'wrap' }}>
+            <Ionicons name="book-outline" size={16} color={colors.primary} />
+            <Text style={[styles.cardTitle, { color: colors.text }]} numberOfLines={2}>{displayName}</Text>
+          </View>
           {professor ? (
-            <Text style={[styles.cardProf, { color: colors.textSecondary }]}>👤 {professor} ({subject})</Text>
+            <Text style={[styles.cardProf, { color: colors.textSecondary, marginLeft: 20 }]}>👤 {professor} ({subject})</Text>
           ) : (
-            <Text style={[styles.cardProf, { color: colors.textSecondary }]}>📊 {subject} • Logged: {attended}/{total} hrs</Text>
+            <Text style={[styles.cardProf, { color: colors.textSecondary, marginLeft: 20 }]}>{subject} • Logged: {attended}/{total} hrs</Text>
           )}
         </View>
-        
+
         {/* Simple visual circle container */}
         <View style={[styles.percentageContainer, { borderColor: progressColor }]}>
           <Text style={[styles.percentageText, { color: progressColor }]}>{percentage}%</Text>
         </View>
-      </View>
+      </TouchableOpacity>
 
       {/* Spacing */}
       <View style={styles.divider} />
 
       {/* Alert Banner inside card */}
-      <View
+      <TouchableOpacity
+        activeOpacity={0.8}
+        onPress={toggleExpand}
         style={[
           styles.alertBanner,
           {
@@ -108,15 +130,91 @@ function SubjectCard({
           },
         ]}
       >
-        <Text
-          style={[
-            styles.alertText,
-            { color: alertType === 'success' ? colors.primary : colors.error },
-          ]}
-        >
-          {alertType === 'success' ? '💡' : '⚠️'} {alertText}
-        </Text>
-      </View>
+        <View style={styles.alertBannerContent}>
+          <Text
+            style={[
+              styles.alertText,
+              { color: alertType === 'success' ? colors.primary : colors.error, flex: 1 },
+            ]}
+          >
+            {alertType === 'success' ? '💡' : '⚠️'} {alertText}
+          </Text>
+
+        </View>
+      </TouchableOpacity>
+
+      {expanded && (
+        <View style={styles.simulatorContainer}>
+          <View style={[styles.simDivider, { backgroundColor: colors.outlineVariant }]} />
+
+          <Text style={[styles.simulatorTitle, { color: colors.text }]}>🔮 Attendance Simulator</Text>
+
+          <View style={styles.simulatorRow}>
+            <Text style={[styles.simulatorLabel, { color: colors.textSecondary }]}>Attend consecutive classes</Text>
+            <View style={styles.counterGroup}>
+              <TouchableOpacity
+                style={[styles.counterBtn, { backgroundColor: colors.surfaceContainer }]}
+                onPress={() => setSimAtt(Math.max(0, simAtt - 1))}
+              >
+                <Text style={[styles.counterBtnText, { color: colors.text }]}>-</Text>
+              </TouchableOpacity>
+              <Text style={[styles.counterValue, { color: colors.text }]}>{simAtt}</Text>
+              <TouchableOpacity
+                style={[styles.counterBtn, { backgroundColor: colors.surfaceContainer }]}
+                onPress={() => setSimAtt(simAtt + 1)}
+              >
+                <Text style={[styles.counterBtnText, { color: colors.text }]}>+</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          <View style={styles.simulatorRow}>
+            <Text style={[styles.simulatorLabel, { color: colors.textSecondary }]}>Miss consecutive classes</Text>
+            <View style={styles.counterGroup}>
+              <TouchableOpacity
+                style={[styles.counterBtn, { backgroundColor: colors.surfaceContainer }]}
+                onPress={() => setSimMiss(Math.max(0, simMiss - 1))}
+              >
+                <Text style={[styles.counterBtnText, { color: colors.text }]}>-</Text>
+              </TouchableOpacity>
+              <Text style={[styles.counterValue, { color: colors.text }]}>{simMiss}</Text>
+              <TouchableOpacity
+                style={[styles.counterBtn, { backgroundColor: colors.surfaceContainer }]}
+                onPress={() => setSimMiss(simMiss + 1)}
+              >
+                <Text style={[styles.counterBtnText, { color: colors.text }]}>+</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          {/* Result section */}
+          {(() => {
+            const newAtt = attended + simAtt;
+            const newTot = total + simAtt + simMiss;
+            const newPct = newTot > 0 ? Math.round((newAtt / newTot) * 1000) / 10 : 0;
+            const isPctHigh = newPct >= targetPercentage;
+            const statusColor = isPctHigh ? colors.primary : colors.error;
+
+            return (
+              <View style={[styles.simResultCard, { backgroundColor: colors.surfaceLow }]}>
+                <View style={styles.simResultLeft}>
+                  <Text style={[styles.simResultLabel, { color: colors.textSecondary }]}>Simulated %</Text>
+                  <Text style={[styles.simResultValue, { color: statusColor }]}>{newPct}%</Text>
+                </View>
+                <View style={styles.simResultRight}>
+                  <Text style={[styles.simResultText, { color: colors.text }]}>
+                    {simAtt === 0 && simMiss === 0 ? (
+                      "Adjust controls above to simulate hypothetical classes."
+                    ) : (
+                      `Simulated: ${newAtt}/${newTot} hrs. You would be ${isPctHigh ? 'safe' : 'below target'}!`
+                    )}
+                  </Text>
+                </View>
+              </View>
+            );
+          })()}
+        </View>
+      )}
     </View>
   );
 }
@@ -168,6 +266,12 @@ export default function AttendanceDashboard() {
   const loadData = useCallback(async (showRefreshingSpinner = false) => {
     if (!isLoggedIn) return;
     const hasCache = dataCache.attendance && dataCache.attendance.length > 0;
+    const isStale = dataCache.isStale('attendance');
+
+    // Skip network request if we have fresh cached data and aren't forcing a refresh
+    if (hasCache && !isStale && !showRefreshingSpinner) {
+      return;
+    }
 
     if (showRefreshingSpinner) {
       setIsRefreshing(true);
@@ -286,7 +390,7 @@ export default function AttendanceDashboard() {
               <Text style={styles.cumulativeValue}>{cumulative}%</Text>
             </View>
             <View style={styles.avatarCircle}>
-              <Text style={styles.avatarIcon}>🎓</Text>
+              <Ionicons name="school" size={24} color="#ffffff" />
             </View>
           </View>
 
@@ -342,12 +446,6 @@ export default function AttendanceDashboard() {
             )}
           </View>
 
-          {/* Info card */}
-          <View style={[styles.infoCard, { backgroundColor: colors.surfaceContainer }]}>
-            <Text style={[styles.infoText, { color: colors.textSecondary }]}>
-              ℹ️ Attendance is fetched directly from ETLAB GCEK. A minimum threshold of 75% is required for each subject to register for exams. Calculations are based on your target of {targetPercentage}%.
-            </Text>
-          </View>
         </ScrollView>
       )}
     </SafeAreaView>
@@ -564,5 +662,97 @@ const styles = StyleSheet.create({
   },
   chipText: {
     fontSize: 13,
+  },
+  alertBannerContent: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  simHint: {
+    fontFamily: Fonts.label,
+    fontSize: 10,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  simulatorContainer: {
+    marginTop: Spacing.two,
+    gap: Spacing.two,
+  },
+  simDivider: {
+    height: 1,
+    opacity: 0.1,
+    marginVertical: Spacing.one,
+  },
+  simulatorTitle: {
+    fontFamily: Fonts.bodyBold,
+    fontSize: 14,
+    marginBottom: Spacing.half,
+  },
+  simulatorRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: Spacing.half,
+  },
+  simulatorLabel: {
+    fontFamily: Fonts.body,
+    fontSize: 13,
+    flex: 1,
+  },
+  counterGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.two,
+  },
+  counterBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: Roundness.sm,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  counterBtnText: {
+    fontFamily: Fonts.bodyBold,
+    fontSize: 16,
+    lineHeight: 18,
+  },
+  counterValue: {
+    fontFamily: Fonts.bodyBold,
+    fontSize: 14,
+    minWidth: 20,
+    textAlign: 'center',
+  },
+  simResultCard: {
+    flexDirection: 'row',
+    padding: Spacing.two,
+    borderRadius: Roundness.default,
+    marginTop: Spacing.one,
+    alignItems: 'center',
+    gap: Spacing.two,
+  },
+  simResultLeft: {
+    alignItems: 'center',
+    paddingRight: Spacing.two,
+    borderRightWidth: 1,
+    borderRightColor: 'rgba(195, 198, 213, 0.15)',
+    minWidth: 70,
+  },
+  simResultLabel: {
+    fontFamily: Fonts.label,
+    fontSize: 8,
+    textTransform: 'uppercase',
+  },
+  simResultValue: {
+    fontFamily: Fonts.headlineBold,
+    fontSize: 18,
+  },
+  simResultRight: {
+    flex: 1,
+    paddingLeft: Spacing.one,
+  },
+  simResultText: {
+    fontFamily: Fonts.body,
+    fontSize: 12,
+    lineHeight: 16,
   },
 });

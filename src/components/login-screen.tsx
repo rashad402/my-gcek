@@ -16,6 +16,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLogin } from './login-context';
 import { Colors, Fonts, Spacing, Roundness } from '@/constants/theme';
 import { useColorScheme } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 
 export default function LoginScreen() {
   const colorScheme = useColorScheme();
@@ -27,7 +28,7 @@ export default function LoginScreen() {
   const [usernameInput, setUsernameInput] = useState('');
   const [passwordInput, setPasswordInput] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [keepLoggedIn, setKeepLoggedIn] = useState(false);
+  const [keepLoggedIn, setKeepLoggedIn] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
 
   const handleSignIn = async () => {
@@ -65,7 +66,7 @@ export default function LoginScreen() {
             {/* Header Section */}
             <View style={styles.header}>
               <View style={[styles.iconFrame, { backgroundColor: colors.surfaceContainer }]}>
-                <Text style={[styles.logoIcon, { color: colors.primary }]}>🏛️</Text>
+                <Ionicons name="school" size={28} color={colors.primary} />
               </View>
               <Text style={[styles.title, { color: colors.text }]}>Welcome to ETLAB GCEK</Text>
               <Text style={[styles.subtitle, { color: colors.textSecondary }]}>The Digital Curator</Text>
@@ -77,7 +78,7 @@ export default function LoginScreen() {
               <View style={styles.inputGroup}>
                 <Text style={[styles.label, { color: colors.textSecondary }]}>University ID</Text>
                 <View style={[styles.inputWrapper, { borderColor: colors.outlineVariant }]}>
-                  <Text style={styles.inputIcon}>👤</Text>
+                  <Ionicons name="person-outline" size={18} color={colors.outline} style={styles.inputIcon} />
                   <TextInput
                     style={[styles.input, { color: colors.text }]}
                     placeholder="Enter your ETLAB ID"
@@ -94,7 +95,7 @@ export default function LoginScreen() {
               <View style={styles.inputGroup}>
                 <Text style={[styles.label, { color: colors.textSecondary }]}>Password</Text>
                 <View style={[styles.inputWrapper, { borderColor: colors.outlineVariant }]}>
-                  <Text style={styles.inputIcon}>🔑</Text>
+                  <Ionicons name="lock-closed-outline" size={18} color={colors.outline} style={styles.inputIcon} />
                   <TextInput
                     style={[styles.input, { color: colors.text }]}
                     placeholder="Enter password"
@@ -110,7 +111,7 @@ export default function LoginScreen() {
                     style={styles.eyeButton}
                     disabled={isLoading}
                   >
-                    <Text style={styles.eyeText}>{showPassword ? '🐵' : '🙈'}</Text>
+                    <Ionicons name={showPassword ? "eye-outline" : "eye-off-outline"} size={20} color={colors.outline} />
                   </TouchableOpacity>
                 </View>
               </View>
