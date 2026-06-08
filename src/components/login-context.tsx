@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { Alert } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
-import { loginToEtlab, validateSession } from '@/services/etlab-api';
+import { loginToEtlab, validateSession, logoutFromEtlab } from '@/services/etlab-api';
 import { dataCache } from '@/services/data-cache';
 
 // ─── SecureStore keys ───────────────────────────────────────────────────────
@@ -66,8 +66,9 @@ export function LoginProvider({ children }: { children: ReactNode }) {
             setUsername(savedUsername);
             setStudentId(savedStudentId || '');
           } else {
-            // Session expired — clear persisted data and cache
+            // Session expired — clear persisted data
             await dataCache.clear();
+            await logoutFromEtlab();
             await clearPersistedSession();
             Alert.alert(
               'Session Expired',
@@ -100,21 +101,17 @@ export function LoginProvider({ children }: { children: ReactNode }) {
       const result = await loginToEtlab(user, password, persist);
 
       if (result.success) {
-        console.log('[Auth] Login successful for user:', user);
+        console.log('[Auth] Login successful');
         setIsLoggedIn(true);
         setUsername(user);
         setStudentId(result.studentId);
 
         if (persist) {
           try {
-            console.log('[SECURESTORE WRITE]', KEY_USERNAME, typeof user, user.length);
             await SecureStore.setItemAsync(KEY_USERNAME, user);
-            
-            console.log('[SECURESTORE WRITE]', KEY_IS_LOGGED_IN, 'string', 4);
             await SecureStore.setItemAsync(KEY_IS_LOGGED_IN, 'true');
             
             if (result.studentId) {
-              console.log('[SECURESTORE WRITE]', KEY_STUDENT_ID, typeof result.studentId, result.studentId.length);
               await SecureStore.setItemAsync(KEY_STUDENT_ID, result.studentId);
             }
           } catch {
@@ -147,14 +144,7 @@ export function LoginProvider({ children }: { children: ReactNode }) {
     setIsLoggedIn(false);
     setUsername('');
     setStudentId('');
-    try {
-      // Cleanly invalidate session on the ETLAB server
-      await fetch('https://gcek.etlab.in/user/logout', {
-        credentials: 'include',
-      });
-    } catch {
-      // Ignore network errors during logout
-    }
+    await logoutFromEtlab();
     await dataCache.clear();
     await clearPersistedSession();
   };

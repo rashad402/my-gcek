@@ -14,42 +14,7 @@ import { Platform } from 'react-native';
 
 const BASE_URL = 'https://gcek.etlab.in';
 
-// ─── Cookie helpers ─────────────────────────────────────────────────────────
 
-/**
- * Parse raw `Set-Cookie` header(s) into a single cookie string
- * suitable for the `Cookie` request header.
- *
- * React Native's `fetch` may return multiple Set-Cookie values
- * concatenated with ", " or as separate headers depending on platform.
- */
-export function parseCookies(setCookieHeader: string | null): string {
-  if (!setCookieHeader) return '';
-  // Each Set-Cookie directive is separated by ", " when headers are merged.
-  // We only need the name=value portion (before the first ";").
-  return setCookieHeader
-    .split(/,(?=\s*[A-Za-z_][A-Za-z0-9_]*=)/)
-    .map((c) => c.trim().split(';')[0])
-    .filter(Boolean)
-    .join('; ');
-}
-
-/** Merge two cookie strings, with `newer` overriding duplicate keys from `older`. */
-export function mergeCookies(older: string, newer: string): string {
-  const map = new Map<string, string>();
-  const parse = (raw: string) => {
-    raw.split(';').forEach((pair) => {
-      const trimmed = pair.trim();
-      const eqIdx = trimmed.indexOf('=');
-      if (eqIdx > 0) {
-        map.set(trimmed.substring(0, eqIdx), trimmed);
-      }
-    });
-  };
-  parse(older);
-  parse(newer);
-  return Array.from(map.values()).join('; ');
-}
 
 
 /** Extract the CSRF token from the ETLAB login page HTML. */
@@ -314,10 +279,12 @@ export async function loginToEtlab(
 export async function validateSession(): Promise<boolean> {
   try {
     const res = await fetchPage(`${BASE_URL}/ktuacademics/student/results`);
-    return res.ok && !res.sessionExpired;
+    // If the session has not explicitly expired (even if the server returns a temporary 5xx status),
+    // we consider the session alive to prevent outage-induced automatic logouts.
+    return !res.sessionExpired;
   } catch (err) {
     console.warn('[Session] validation network/unexpected error:', err);
-    // Network error — treat as unknown (not expired) to allow offline cache usage
+    // Network error — treat as alive to allow offline cache usage
     return true;
   }
 }
@@ -395,4 +362,15 @@ export function fetchAssignments() {
 /** Fetch the surveys page. */
 export function fetchSurveys() {
   return fetchPage(`${BASE_URL}/survey/user/viewall`);
+}
+
+/** Invalidate the session on the ETLAB server with a timeout fallback. */
+export async function logoutFromEtlab(): Promise<void> {
+  try {
+    await fetchWithTimeout(`${BASE_URL}/user/logout`, {
+      credentials: 'include',
+    }, 8000, 1);
+  } catch (err) {
+    console.warn('[Auth] Logout network request failed:', err);
+  }
 }

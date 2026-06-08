@@ -265,6 +265,13 @@ export default function AttendanceDashboard() {
 
   const loadData = useCallback(async (showRefreshingSpinner = false) => {
     if (!isLoggedIn) return;
+    if (!studentId) {
+      setErrorMsg('Unable to retrieve student ID for attendance records.');
+      setIsLoading(false);
+      setIsRefreshing(false);
+      return;
+    }
+
     const hasCache = dataCache.attendance && dataCache.attendance.length > 0;
     const isStale = dataCache.isStale('attendance');
 
