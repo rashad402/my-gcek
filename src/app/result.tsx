@@ -29,9 +29,9 @@ interface SubjectResultCardProps {
 function SubjectResultCard({ subject, subjectName, results, colors }: SubjectResultCardProps) {
   const [expanded, setExpanded] = useState(false);
 
-  // Compute overall percentage
-  const totalObtained = results.reduce((sum, r) => sum + r.marks, 0);
-  const totalPossible = results.reduce((sum, r) => sum + r.total, 0);
+  // Compute overall percentage by excluding ungraded (null) assessments
+  const totalObtained = results.reduce((sum, r) => sum + (r.marks !== null ? r.marks : 0), 0);
+  const totalPossible = results.reduce((sum, r) => sum + (r.marks !== null ? r.total : 0), 0);
   const percentage = totalPossible > 0 ? Math.round((totalObtained / totalPossible) * 100) : 0;
 
   return (
@@ -76,7 +76,8 @@ function SubjectResultCard({ subject, subjectName, results, colors }: SubjectRes
             </Text>
           </View>
           {results.map((res, idx) => {
-            const ratio = res.total > 0 ? res.marks / res.total : 0;
+            const isGraded = res.marks !== null && res.marks !== undefined;
+            const ratio = (isGraded && res.total > 0) ? (res.marks as number) / res.total : 0;
             const pct = Math.round(ratio * 100);
             
             // Color based on performance
@@ -97,10 +98,16 @@ function SubjectResultCard({ subject, subjectName, results, colors }: SubjectRes
                     ) : null}
                   </View>
                   <Text style={[styles.marksText, { color: colors.text }]}>
-                    {res.marks} <Text style={{ color: colors.textSecondary, fontSize: 12 }}>/ {res.total}</Text>
+                    {isGraded ? (
+                      <>
+                        {res.marks} <Text style={{ color: colors.textSecondary, fontSize: 12 }}>/ {res.total}</Text>
+                      </>
+                    ) : (
+                      <Text style={{ color: colors.textSecondary }}>- / {res.total}</Text>
+                    )}
                   </Text>
                 </View>
-                {res.total > 0 && (
+                {isGraded && res.total > 0 && (
                   <View style={styles.progressBarWrapper}>
                     <View style={[styles.progressBarBackground, { backgroundColor: colors.surfaceLow }]} />
                     <View style={[

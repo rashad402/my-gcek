@@ -209,8 +209,8 @@ export function parseAttendance(html: string): SubjectAttendance[] {
 export interface ResultEntry {
   /** Exam / assessment name (e.g., "Series 1", "Internal") */
   name: string;
-  /** Marks obtained */
-  marks: number;
+  /** Marks obtained (null if not entered yet) */
+  marks: number | null;
   /** Total marks possible */
   total: number;
   /** Grade if available */
@@ -239,13 +239,13 @@ export interface SubjectResult {
 export function parseResults(html: string): SubjectResult[] {
   const results: SubjectResult[] = [];
 
-  // Match <h5>Title</h5> and the matching <table> under it
-  const titleAndTableRegex = /<h5>\s*([\s\S]*?)\s*<\/h5>[\s\S]*?<table[^>]*>([\s\S]*?)<\/table>/gi;
+  // Match <h2> to <h6> or <caption> headers followed by a <table>
+  const titleAndTableRegex = /<(h[2-6]|caption)[^>]*>\s*([\s\S]*?)\s*<\/\1>[\s\S]*?<table[^>]*>([\s\S]*?)<\/table>/gi;
   let match: RegExpExecArray | null;
 
   while ((match = titleAndTableRegex.exec(html)) !== null) {
-    const sectionTitle = decodeEntities(stripTags(match[1])).trim();
-    const tableHtml = match[2];
+    const sectionTitle = decodeEntities(stripTags(match[2])).trim();
+    const tableHtml = match[3];
 
     // 1. Extract headers to find column mappings
     const headers: string[] = [];
@@ -258,12 +258,15 @@ export function parseResults(html: string): SubjectResult[] {
       }
     }
 
-    // Find column indices
-    const subjectIdx = headers.findIndex((h) => h.includes('subject'));
-    const maxMarksIdx = headers.findIndex((h) => h.includes('maximum marks') || h.includes('max marks'));
-    const marksObtainedIdx = headers.findIndex((h) => h.includes('marks obtained') || h.includes('obtained'));
+    // Find column indices with highly robust rules
+    const subjectIdx = headers.findIndex((h) => h.includes('subject') || h.includes('course') || h.includes('paper') || h.includes('code'));
+    const maxMarksIdx = headers.findIndex((h) => h.includes('maximum') || h.includes('max') || h.includes('limit'));
+    const marksObtainedIdx = headers.findIndex((h, idx) => 
+      idx !== maxMarksIdx && 
+      (h.includes('obtained') || h.includes('marks') || h.includes('mark') || h.includes('score'))
+    );
 
-    // Find exam/assessment name column (not subject, not max marks, not marks obtained, not semester, not view response)
+    // Find exam/assessment name column (excluding subject, max marks, marks obtained, semester, view response)
     const examNameIdx = headers.findIndex((h, idx) =>
       idx !== subjectIdx &&
       idx !== maxMarksIdx &&
@@ -321,16 +324,17 @@ export function parseResults(html: string): SubjectResult[] {
       const obtainedVal = cells[marksObtainedIdx] ? cells[marksObtainedIdx].trim() : '';
 
       const total = parseFloat(maxVal) || 100;
-      let marks = parseFloat(obtainedVal.replace(/[^\d.]/g, ''));
+      let marks: number | null = parseFloat(obtainedVal.replace(/[^\d.]/g, ''));
       let grade = '';
 
       if (isNaN(marks)) {
-        if (obtainedVal === 'A') {
+        const lowerVal = obtainedVal.toLowerCase();
+        if (lowerVal === 'a' || lowerVal === 'ab' || lowerVal === 'absent') {
           marks = 0;
           grade = 'Absent';
         } else {
-          // If no marks have been entered yet, skip this row
-          continue;
+          // If no marks have been entered yet, keep it as null
+          marks = null;
         }
       }
 
@@ -358,15 +362,31 @@ export function parseResults(html: string): SubjectResult[] {
       if (cells.length < 3) continue;
       const subject = cells[0];
       const examName = cells[1];
-      const nums = cells.slice(2).map((c) => parseFloat(c.replace(/[%\s]/g, ''))).filter((n) => !isNaN(n));
+      if (!subject || !examName) continue;
 
-      if (!subject || !examName || nums.length === 0) continue;
+      const obtainedVal = cells[2] ? cells[2].trim() : '';
+      const maxVal = cells[3] ? cells[3].replace(/[^\d.]/g, '') : '';
+
+      let marks: number | null = parseFloat(obtainedVal.replace(/[^\d.]/g, ''));
+      let grade = cells.length > 4 ? cells[cells.length - 1] : '';
+
+      if (isNaN(marks)) {
+        const lowerVal = obtainedVal.toLowerCase();
+        if (lowerVal === 'a' || lowerVal === 'ab' || lowerVal === 'absent') {
+          marks = 0;
+          grade = 'Absent';
+        } else {
+          marks = null;
+        }
+      }
+
+      const total = parseFloat(maxVal) || 100;
 
       const entry: ResultEntry = {
         name: examName,
-        marks: nums[0],
-        total: nums.length >= 2 ? nums[1] : 100,
-        grade: cells.length > 4 ? cells[cells.length - 1] : '',
+        marks,
+        total,
+        grade,
       };
 
       if (!subjectMap.has(subject)) {
