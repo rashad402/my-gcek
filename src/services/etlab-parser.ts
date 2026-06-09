@@ -226,20 +226,61 @@ export interface SubjectResult {
   results: ResultEntry[];
 }
 
-/** Map raw exam/sessional names like "Result 1" to user-friendly names like "Regular" or "Supplementary". */
-function cleanExamName(name: string): string {
-  const trimmed = name.trim();
-  const lower = trimmed.toLowerCase();
-  
-  if (lower === 'result 1') return 'Regular';
-  if (lower === 'result 2') return 'Supplementary / Revaluation';
-  if (lower === 'result 3') return 'Supplementary 2';
-  if (lower === 'result 4') return 'Supplementary 3';
-  
-  return trimmed
-    .replace(/\bResult 1\b/gi, 'Regular')
-    .replace(/\bResult 2\b/gi, 'Supplementary')
-    .replace(/\bResult 3\b/gi, 'Supplementary 2');
+/** Map raw exam/sessional names like "Result 1" or sessional indices to user-friendly names like "Regular" or "Series 1". */
+function cleanExamName(sectionTitle: string, examVal: string): string {
+  const sec = sectionTitle.trim();
+  const secLower = sec.toLowerCase();
+  const val = examVal.trim();
+  const valLower = val.toLowerCase();
+
+  // If the exam value is just a number (e.g. "1", "2")
+  if (/^\d+$/.test(val)) {
+    const num = parseInt(val, 10);
+    if (secLower.includes('sessional exam') || secLower.includes('sessional') || secLower.includes('exam')) {
+      return `Series ${num}`;
+    }
+    if (secLower.includes('assignment')) {
+      return `Assignment ${num}`;
+    }
+    if (secLower.includes('module')) {
+      return `Module Test ${num}`;
+    }
+    if (secLower.includes('project')) {
+      return `Project ${num}`;
+    }
+    if (secLower.includes('tutorial')) {
+      return `Tutorial ${num}`;
+    }
+    if (secLower.includes('seminar')) {
+      return `Seminar ${num}`;
+    }
+    if (secLower.includes('lab evaluation') || secLower.includes('evaluation')) {
+      return `Lab Evaluation ${num}`;
+    }
+    if (secLower.includes('lab internal') || secLower.includes('internal test')) {
+      return `Lab Internal ${num}`;
+    }
+    if (secLower.includes('university') || sec === '') {
+      if (num === 1) return 'Regular';
+      if (num === 2) return 'Supplementary / Revaluation';
+      return `Supplementary ${num - 1}`;
+    }
+    // Fallback if it's just a number
+    return `${sec} ${num}`;
+  }
+
+  // Handle "Result 1", "Result 2" text format
+  if (valLower === 'result 1') return 'Regular';
+  if (valLower === 'result 2') return 'Supplementary / Revaluation';
+  if (valLower === 'result 3') return 'Supplementary 2';
+  if (valLower === 'result 4') return 'Supplementary 3';
+
+  // General fallback
+  if (val) {
+    if (secLower.includes(valLower)) return sec;
+    return sec ? `${sec} - ${val}` : val;
+  }
+  return sec;
 }
 
 /**
@@ -274,6 +315,99 @@ export function parseResults(html: string): SubjectResult[] {
       }
     }
 
+    // Find all Result/Grade columns
+    const resultColIndices: { idx: number; headerName: string }[] = [];
+    headers.forEach((h, idx) => {
+      if (h.includes('result') || h.includes('grade')) {
+        resultColIndices.push({ idx, headerName: h });
+      }
+    });
+
+    const isUniversityResult = resultColIndices.length > 0;
+
+    // A. Parse as University Result if it has grade/result columns
+    if (isUniversityResult) {
+      const examIdx = headers.findIndex((h) => h.includes('exam') || h.includes('name') || h.includes('title'));
+      const subjectIdx = headers.findIndex((h) => h.includes('subject') || h.includes('course') || h.includes('paper') || h.includes('code'));
+      
+      if (subjectIdx === -1) continue;
+
+      const tbodyMatch = tableHtml.match(/<tbody[^>]*>([\s\S]*?)<\/tbody>/i);
+      const searchArea = tbodyMatch ? tbodyMatch[1] : tableHtml;
+
+      const trRegex = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
+      let trMatch: RegExpExecArray | null;
+
+      while ((trMatch = trRegex.exec(searchArea)) !== null) {
+        const rowHtml = trMatch[1];
+        if (/<th[\s>]/i.test(rowHtml)) continue;
+
+        const cells: string[] = [];
+        const tdRegex = /<td[^>]*>([\s\S]*?)<\/td>/gi;
+        let tdMatch: RegExpExecArray | null;
+        while ((tdMatch = tdRegex.exec(rowHtml)) !== null) {
+          cells.push(decodeEntities(stripTags(tdMatch[1])).trim());
+        }
+
+        if (cells.length === 0 || cells[0].includes('No sessional') || cells[0].includes('No results') || cells[0].includes('empty')) {
+          continue;
+        }
+
+        const rawSubject = cells[subjectIdx] || '';
+        if (!rawSubject || rawSubject.toLowerCase().includes('no results')) {
+          continue;
+        }
+
+        const subjectParts = rawSubject.split('-');
+        const subject = subjectParts[0].trim();
+        const subjectName = subjectParts[1] ? subjectParts[1].trim() : '';
+
+        // Base exam name (e.g. "B.Tech S6 Exam May 2025")
+        let baseExamName = examIdx !== -1 && cells[examIdx] ? cells[examIdx].trim() : '';
+        if (!baseExamName) {
+          baseExamName = sectionTitle;
+        }
+
+        let subjGroup = results.find((r) => r.subject === subject);
+        if (!subjGroup) {
+          subjGroup = { subject, subjectName, results: [] };
+          results.push(subjGroup);
+        }
+
+        // For each result/grade column
+        for (const col of resultColIndices) {
+          const grade = cells[col.idx] || '';
+          // Skip if empty or hyphen (meaning no grade/not registered for supplementary)
+          if (!grade || grade === '-' || grade.toLowerCase() === 'nil' || grade.toLowerCase() === 'empty') {
+            continue;
+          }
+
+          // Format name based on header (Result 1 -> Regular, Result 2 -> Supplementary, etc.)
+          let examName = baseExamName;
+          const hName = col.headerName.toLowerCase();
+          if (hName.includes('result 2')) {
+            examName = `${baseExamName} (Supplementary / Revaluation)`;
+          } else if (hName.includes('result 3')) {
+            examName = `${baseExamName} (Supplementary 2)`;
+          } else if (hName.includes('result 4')) {
+            examName = `${baseExamName} (Supplementary 3)`;
+          } else if (hName.includes('result 1')) {
+            examName = `${baseExamName} (Regular)`;
+          } else if (hName.includes('grade') && hName !== 'grade') {
+            examName = `${baseExamName} (${col.headerName})`;
+          }
+
+          subjGroup.results.push({
+            name: examName,
+            marks: null,
+            total: 0,
+            grade,
+          });
+        }
+      }
+      continue;
+    }
+
     // Find column indices with highly robust rules
     const subjectIdx = headers.findIndex((h) => h.includes('subject') || h.includes('course') || h.includes('paper') || h.includes('code'));
     const maxMarksIdx = headers.findIndex((h) => h.includes('maximum') || h.includes('max') || h.includes('limit'));
@@ -297,7 +431,7 @@ export function parseResults(html: string): SubjectResult[] {
       continue;
     }
 
-    // 2. Extract rows
+    // B. Parse as Sessional Exam Table
     const tbodyMatch = tableHtml.match(/<tbody[^>]*>([\s\S]*?)<\/tbody>/i);
     const searchArea = tbodyMatch ? tbodyMatch[1] : tableHtml;
 
@@ -330,11 +464,8 @@ export function parseResults(html: string): SubjectResult[] {
       const subjectName = subjectParts[1] ? subjectParts[1].trim() : '';
 
       // Determine assessment title
-      let examName = sectionTitle; // Default to table title (e.g., "Internal marks")
-      if (examNameIdx !== -1 && cells[examNameIdx]) {
-        examName = `${sectionTitle} - ${cells[examNameIdx].trim()}`;
-      }
-      examName = cleanExamName(examName);
+      const examVal = examNameIdx !== -1 && cells[examNameIdx] ? cells[examNameIdx].trim() : '';
+      const examName = cleanExamName(sectionTitle, examVal);
 
       // Parse marks
       const maxVal = cells[maxMarksIdx] ? cells[maxMarksIdx].replace(/[^\d.]/g, '') : '';
@@ -400,7 +531,7 @@ export function parseResults(html: string): SubjectResult[] {
       const total = parseFloat(maxVal) || 100;
 
       const entry: ResultEntry = {
-        name: cleanExamName(examName),
+        name: cleanExamName("", examName),
         marks,
         total,
         grade,
