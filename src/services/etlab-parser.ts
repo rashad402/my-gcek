@@ -226,6 +226,22 @@ export interface SubjectResult {
   results: ResultEntry[];
 }
 
+/** Map raw exam/sessional names like "Result 1" to user-friendly names like "Regular" or "Supplementary". */
+function cleanExamName(name: string): string {
+  const trimmed = name.trim();
+  const lower = trimmed.toLowerCase();
+  
+  if (lower === 'result 1') return 'Regular';
+  if (lower === 'result 2') return 'Supplementary / Revaluation';
+  if (lower === 'result 3') return 'Supplementary 2';
+  if (lower === 'result 4') return 'Supplementary 3';
+  
+  return trimmed
+    .replace(/\bResult 1\b/gi, 'Regular')
+    .replace(/\bResult 2\b/gi, 'Supplementary')
+    .replace(/\bResult 3\b/gi, 'Supplementary 2');
+}
+
 /**
  * Parse the ETLAB results page HTML.
  *
@@ -318,6 +334,7 @@ export function parseResults(html: string): SubjectResult[] {
       if (examNameIdx !== -1 && cells[examNameIdx]) {
         examName = `${sectionTitle} - ${cells[examNameIdx].trim()}`;
       }
+      examName = cleanExamName(examName);
 
       // Parse marks
       const maxVal = cells[maxMarksIdx] ? cells[maxMarksIdx].replace(/[^\d.]/g, '') : '';
@@ -383,7 +400,7 @@ export function parseResults(html: string): SubjectResult[] {
       const total = parseFloat(maxVal) || 100;
 
       const entry: ResultEntry = {
-        name: examName,
+        name: cleanExamName(examName),
         marks,
         total,
         grade,
