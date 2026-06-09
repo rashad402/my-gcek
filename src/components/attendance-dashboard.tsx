@@ -8,6 +8,7 @@ import {
   ActivityIndicator,
   TouchableOpacity,
   useColorScheme,
+  Animated,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLogin } from './login-context';
@@ -57,6 +58,15 @@ function getSubjectName(code: string): string {
   return staticMap[cleanCode] || code;
 }
 
+function toTitleCase(str: string) {
+  return str.replace(
+    /\w\S*/g,
+    txt =>
+      txt.charAt(0).toUpperCase() +
+      txt.substring(1).toLowerCase()
+  );
+}
+
 function SubjectCard({
   subject,
   professor,
@@ -80,9 +90,9 @@ function SubjectCard({
     setExpanded(!expanded);
   };
 
-  const isHigh = percentage >= targetPercentage;
-  const progressColor = isHigh ? colors.primary : colors.error;
-  const displayName = getSubjectName(subject);
+  // Tiered color: <75% red, 75-79% yellow, 80%+ green
+  const progressColor = percentage < 75 ? colors.danger : percentage < 80 ? colors.warning : colors.success;
+  const displayName = toTitleCase(getSubjectName(subject));
 
   return (
     <View style={[styles.card, { backgroundColor: colors.surfaceLowest, borderColor: colors.outlineVariant }]}>
@@ -92,14 +102,14 @@ function SubjectCard({
         activeOpacity={0.75}
       >
         <View style={styles.cardInfo}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.one, flexWrap: 'wrap' }}>
-            <Ionicons name="book-outline" size={16} color={colors.primary} />
+          <View style={styles.titleRow}>
+            <Ionicons name="book-outline" size={16} color={colors.primary} style={styles.titleIcon} />
             <Text style={[styles.cardTitle, { color: colors.text }]} numberOfLines={2}>{displayName}</Text>
           </View>
           {professor ? (
-            <Text style={[styles.cardProf, { color: colors.textSecondary, marginLeft: 20 }]}>👤 {professor} ({subject})</Text>
+            <Text style={[styles.cardProf, { color: colors.textSecondary }]}>👤 {professor} ({subject})</Text>
           ) : (
-            <Text style={[styles.cardProf, { color: colors.textSecondary, marginLeft: 20 }]}>{subject} • Logged: {attended}/{total} hrs</Text>
+            <Text style={[styles.cardProf, { color: colors.textSecondary }]}>{subject} • Logged: {attended}/{total} hrs</Text>
           )}
         </View>
 
@@ -109,39 +119,20 @@ function SubjectCard({
         </View>
       </TouchableOpacity>
 
-      {/* Spacing */}
-      <View style={styles.divider} />
-
-      {/* Alert Banner inside card */}
-      <TouchableOpacity
-        activeOpacity={0.8}
-        onPress={toggleExpand}
+      {/* Compact status pill */}
+      <View
         style={[
-          styles.alertBanner,
+          styles.statusPill,
           {
-            backgroundColor:
-              alertType === 'success'
-                ? 'rgba(9, 76, 178, 0.05)'
-                : 'rgba(186, 26, 26, 0.05)',
-            borderColor:
-              alertType === 'success'
-                ? 'rgba(9, 76, 178, 0.1)'
-                : 'rgba(186, 26, 26, 0.1)',
+            backgroundColor: `${progressColor}15`,
+            borderColor: `${progressColor}30`,
           },
         ]}
       >
-        <View style={styles.alertBannerContent}>
-          <Text
-            style={[
-              styles.alertText,
-              { color: alertType === 'success' ? colors.primary : colors.error, flex: 1 },
-            ]}
-          >
-            {alertType === 'success' ? '💡' : '⚠️'} {alertText}
-          </Text>
-
-        </View>
-      </TouchableOpacity>
+        <Text style={[styles.statusPillText, { color: progressColor }]}>
+          {alertText}
+        </Text>
+      </View>
 
       {expanded && (
         <View style={styles.simulatorContainer}>
@@ -192,8 +183,8 @@ function SubjectCard({
             const newAtt = attended + simAtt;
             const newTot = total + simAtt + simMiss;
             const newPct = newTot > 0 ? Math.round((newAtt / newTot) * 1000) / 10 : 0;
-            const isPctHigh = newPct >= targetPercentage;
-            const statusColor = isPctHigh ? colors.primary : colors.error;
+            // Tiered color matching dashboard
+            const statusColor = newPct < 75 ? colors.danger : newPct < 80 ? colors.warning : colors.success;
 
             return (
               <View style={[styles.simResultCard, { backgroundColor: colors.surfaceLow }]}>
@@ -206,7 +197,7 @@ function SubjectCard({
                     {simAtt === 0 && simMiss === 0 ? (
                       "Adjust controls above to simulate hypothetical classes."
                     ) : (
-                      `Simulated: ${newAtt}/${newTot} hrs. You would be ${isPctHigh ? 'safe' : 'below target'}!`
+                      `Simulated: ${newAtt}/${newTot} hrs. You would be ${newPct >= 75 ? 'safe' : 'below target'}!`
                     )}
                   </Text>
                 </View>
@@ -220,6 +211,7 @@ function SubjectCard({
 }
 
 const KEY_TARGET_PERCENTAGE = 'gcek_target_percentage';
+const OPTIONS = [75, 80, 85, 90, 95];
 
 export default function AttendanceDashboard() {
   const colorScheme = useColorScheme();
@@ -234,6 +226,9 @@ export default function AttendanceDashboard() {
   const [errorMsg, setErrorMsg] = useState('');
   const [targetPercentage, setTargetPercentage] = useState<number>(75);
 
+  const [sliderAnim] = useState(new Animated.Value(0));
+  const segmentWidth = 100 / OPTIONS.length;
+
   // Load target percentage from SecureStore
   useEffect(() => {
     const loadTargetPercentage = async () => {
@@ -241,8 +236,9 @@ export default function AttendanceDashboard() {
         const stored = await SecureStore.getItemAsync(KEY_TARGET_PERCENTAGE);
         if (stored) {
           const val = parseInt(stored, 10);
-          if (!isNaN(val) && [75, 80, 85, 90, 95].includes(val)) {
+          if (!isNaN(val) && OPTIONS.includes(val)) {
             setTargetPercentage(val);
+            sliderAnim.setValue(OPTIONS.indexOf(val));
           }
         }
       } catch (err) {
@@ -250,14 +246,18 @@ export default function AttendanceDashboard() {
       }
     };
     loadTargetPercentage();
-  }, []);
+  }, [sliderAnim]);
 
   const updateTargetPercentage = async (val: number) => {
     setTargetPercentage(val);
+
+    Animated.spring(sliderAnim, {
+      toValue: OPTIONS.indexOf(val),
+      useNativeDriver: false,
+    }).start();
+
     try {
-      const valStr = val.toString();
-      console.log('[SECURESTORE WRITE]', KEY_TARGET_PERCENTAGE, typeof valStr, valStr.length);
-      await SecureStore.setItemAsync(KEY_TARGET_PERCENTAGE, valStr);
+      await SecureStore.setItemAsync(KEY_TARGET_PERCENTAGE, val.toString());
     } catch (err) {
       console.error('Failed to save target percentage', err);
     }
@@ -319,7 +319,8 @@ export default function AttendanceDashboard() {
   const totalAttended = subjects.reduce((sum, s) => sum + s.attended, 0);
   const totalHours = subjects.reduce((sum, s) => sum + s.total, 0);
   const cumulative = totalHours > 0 ? Math.round((totalAttended / totalHours) * 1000) / 10 : 0;
-  const isCumulativeHigh = cumulative >= targetPercentage;
+  // Tiered color for cumulative: <75% red, 75-79% yellow, 80%+ green
+  const cumulativeColor = cumulative < 75 ? colors.danger : cumulative < 80 ? colors.warning : colors.success;
 
   // Process subject alerts dynamically
   const subjectsWithAlerts = subjects.map((subj) => {
@@ -328,17 +329,17 @@ export default function AttendanceDashboard() {
     const targetFraction = targetPercentage / 100;
 
     if (subj.total === 0) {
-      alertText = 'No classes held yet.';
+      alertText = 'No classes yet';
       alertType = 'success';
     } else if (subj.percentage >= targetPercentage) {
       // Safe: how many classes can the student miss?
       // x <= (attended / F) - total
       const maxMissable = Math.floor(subj.attended / targetFraction - subj.total);
       if (maxMissable <= 0) {
-        alertText = `You cannot miss any more classes to stay above ${targetPercentage}%.`;
-        alertType = 'warning'; // critical warning even though currently >= target
+        alertText = '0 margin — attend next class';
+        alertType = 'warning';
       } else {
-        alertText = `You can miss ${maxMissable} class${maxMissable > 1 ? 'es' : ''} to stay above ${targetPercentage}%.`;
+        alertText = `Can miss ${maxMissable} class${maxMissable > 1 ? 'es' : ''}`;
         alertType = 'success';
       }
     } else {
@@ -348,7 +349,7 @@ export default function AttendanceDashboard() {
         1,
         Math.ceil((targetFraction * subj.total - subj.attended) / (1 - targetFraction))
       );
-      alertText = `Attend ${reqClasses} more class${reqClasses > 1 ? 'es' : ''} to reach ${targetPercentage}%.`;
+      alertText = `Need ${reqClasses} more class${reqClasses > 1 ? 'es' : ''}`;
       alertType = 'warning';
     }
 
@@ -391,7 +392,7 @@ export default function AttendanceDashboard() {
           }
         >
           {/* Cumulative Standing Header Card */}
-          <View style={[styles.cumulativeCard, { backgroundColor: isCumulativeHigh ? colors.primary : colors.error }]}>
+          <View style={[styles.cumulativeCard, { backgroundColor: cumulativeColor }]}>
             <View>
               <Text style={styles.cumulativeLabel}>CUMULATIVE STANDING</Text>
               <Text style={styles.cumulativeValue}>{cumulative}%</Text>
@@ -406,30 +407,51 @@ export default function AttendanceDashboard() {
             <Text style={[styles.targetSelectorTitle, { color: colors.textSecondary }]}>
               🎯 Target Attendance Threshold: <Text style={{ fontFamily: Fonts.bodyBold, color: colors.primary }}>{targetPercentage}%</Text>
             </Text>
-            <View style={styles.chipsRow}>
-              {[75, 80, 85, 90, 95].map((pct) => {
+            <View
+              style={[
+                styles.segmentedContainer,
+                {
+                  backgroundColor: colors.surfaceLow,
+                },
+              ]}
+            >
+              {/* Sliding active pill */}
+              <Animated.View
+                style={[
+                  styles.activeSegment,
+                  {
+                    backgroundColor: colors.surfaceLowest,
+                    left: sliderAnim.interpolate({
+                      inputRange: OPTIONS.map((_, i) => i),
+                      outputRange: OPTIONS.map(
+                        (_, i) => `${i * segmentWidth}%`
+                      ),
+                    }),
+                    width: `${segmentWidth}%`,
+                  },
+                ]}
+              />
+
+              {OPTIONS.map((pct) => {
                 const isSelected = targetPercentage === pct;
+
                 return (
                   <TouchableOpacity
                     key={pct}
-                    activeOpacity={0.7}
+                    style={styles.segmentButton}
+                    activeOpacity={0.8}
                     onPress={() => updateTargetPercentage(pct)}
-                    style={[
-                      styles.chip,
-                      {
-                        backgroundColor: isSelected ? colors.primary : colors.surfaceLow,
-                        borderColor: isSelected ? colors.primary : colors.outlineVariant,
-                      },
-                    ]}
                   >
                     <Text
-                      style={[
-                        styles.chipText,
-                        {
-                          color: isSelected ? (scheme === 'dark' ? '#1b1c1d' : '#ffffff') : colors.text,
-                          fontFamily: isSelected ? Fonts.bodyBold : Fonts.bodyMedium,
-                        },
-                      ]}
+                      style={{
+                        color: isSelected
+                          ? colors.text
+                          : colors.textSecondary,
+                        fontFamily: isSelected
+                          ? Fonts.bodyBold
+                          : Fonts.bodyMedium,
+                        fontSize: 13,
+                      }}
                     >
                       {pct}%
                     </Text>
@@ -480,6 +502,7 @@ const styles = StyleSheet.create({
   topBarTitle: {
     fontFamily: Fonts.headlineBold,
     fontSize: 22,
+    lineHeight: 28,
     marginTop: 2,
   },
   profileCircle: {
@@ -518,8 +541,9 @@ const styles = StyleSheet.create({
   },
   cumulativeValue: {
     color: '#ffffff',
-    fontFamily: Fonts.headlineBold,
+    fontFamily: Fonts.bodyBold,
     fontSize: 36,
+    letterSpacing: -0.5,
     marginTop: Spacing.one,
   },
   avatarCircle: {
@@ -539,6 +563,7 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontFamily: Fonts.bodyBold,
     fontSize: 16,
+    lineHeight: 22,
     marginBottom: Spacing.half,
   },
   card: {
@@ -560,13 +585,25 @@ const styles = StyleSheet.create({
     flex: 1,
     gap: 4,
   },
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 6,
+  },
+  titleIcon: {
+    marginTop: 1,
+  },
   cardTitle: {
-    fontFamily: Fonts.headlineBold,
+    fontFamily: Fonts.bodyBold,
     fontSize: 16,
+    lineHeight: 22,
+    flex: 1,
   },
   cardProf: {
     fontFamily: Fonts.body,
     fontSize: 13,
+    lineHeight: 18,
+    marginLeft: 22,
   },
   percentageContainer: {
     width: 52,
@@ -579,22 +616,21 @@ const styles = StyleSheet.create({
   },
   percentageText: {
     fontFamily: Fonts.bodyBold,
-    fontSize: 13,
+    fontSize: 14,
+    letterSpacing: -0.3,
   },
-  divider: {
-    height: 1,
-    backgroundColor: 'rgba(195, 198, 213, 0.1)',
-    marginVertical: Spacing.two,
-  },
-  alertBanner: {
-    paddingVertical: Spacing.two,
-    paddingHorizontal: Spacing.three,
-    borderRadius: Roundness.sm,
+  statusPill: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 999,
     borderWidth: 1,
+    marginTop: 10,
   },
-  alertText: {
-    fontFamily: Fonts.bodyMedium,
+  statusPillText: {
     fontSize: 12,
+    lineHeight: 16,
+    fontFamily: Fonts.bodyMedium,
   },
   infoCard: {
     padding: Spacing.three,
@@ -603,7 +639,7 @@ const styles = StyleSheet.create({
   },
   infoText: {
     fontFamily: Fonts.body,
-    fontSize: 12,
+    fontSize: 13,
     lineHeight: 18,
     textAlign: 'center',
   },
@@ -616,7 +652,8 @@ const styles = StyleSheet.create({
   },
   loadingText: {
     fontFamily: Fonts.body,
-    fontSize: 14,
+    fontSize: 13,
+    lineHeight: 18,
     marginTop: Spacing.two,
   },
   errorIcon: {
@@ -625,7 +662,8 @@ const styles = StyleSheet.create({
   },
   errorText: {
     fontFamily: Fonts.body,
-    fontSize: 14,
+    fontSize: 13,
+    lineHeight: 18,
     textAlign: 'center',
     marginBottom: Spacing.three,
   },
@@ -648,33 +686,34 @@ const styles = StyleSheet.create({
   targetSelectorTitle: {
     fontFamily: Fonts.bodyMedium,
     fontSize: 13,
+    lineHeight: 18,
   },
-  chipsRow: {
+  segmentedContainer: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    gap: Spacing.one,
+    borderRadius: 999,
+    padding: 4,
+    position: 'relative',
+    overflow: 'hidden',
+    height: 44,
   },
-  chip: {
-    flex: 1,
-    paddingVertical: 10,
-    borderRadius: Roundness.full,
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
+  activeSegment: {
+    position: 'absolute',
+    top: 4,
+    bottom: 4,
+    borderRadius: 999,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 1,
-    elevation: 1,
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
+    elevation: 2,
   },
-  chipText: {
-    fontSize: 13,
-  },
-  alertBannerContent: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+  segmentButton: {
+    flex: 1,
+    justifyContent: 'center',
     alignItems: 'center',
+    zIndex: 2,
   },
+
   simHint: {
     fontFamily: Fonts.label,
     fontSize: 10,
@@ -692,7 +731,8 @@ const styles = StyleSheet.create({
   },
   simulatorTitle: {
     fontFamily: Fonts.bodyBold,
-    fontSize: 14,
+    fontSize: 16,
+    lineHeight: 22,
     marginBottom: Spacing.half,
   },
   simulatorRow: {
@@ -704,6 +744,7 @@ const styles = StyleSheet.create({
   simulatorLabel: {
     fontFamily: Fonts.body,
     fontSize: 13,
+    lineHeight: 18,
     flex: 1,
   },
   counterGroup: {
@@ -726,6 +767,7 @@ const styles = StyleSheet.create({
   counterValue: {
     fontFamily: Fonts.bodyBold,
     fontSize: 14,
+    letterSpacing: -0.3,
     minWidth: 20,
     textAlign: 'center',
   },
@@ -750,8 +792,9 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
   },
   simResultValue: {
-    fontFamily: Fonts.headlineBold,
+    fontFamily: Fonts.bodyBold,
     fontSize: 18,
+    letterSpacing: -0.3,
   },
   simResultRight: {
     flex: 1,

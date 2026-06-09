@@ -13,6 +13,11 @@ export const Colors = {
     tertiaryContainer: '#bfab49',
     error: '#ba1a1a',
     errorContainer: '#ffdad6',
+
+    // Semantic status colors
+    success: '#22c55e',
+    warning: '#eab308',
+    danger: '#ef4444',
     
     // Surface Levels
     surface: '#faf9fa',
@@ -44,6 +49,11 @@ export const Colors = {
     tertiaryContainer: '#524600',
     error: '#ffdad6',
     errorContainer: '#93000a',
+
+    // Semantic status colors
+    success: '#4ade80',
+    warning: '#facc15',
+    danger: '#f87171',
     
     // Surface Levels
     surface: '#1b1c1d',
