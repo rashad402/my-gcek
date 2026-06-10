@@ -15,10 +15,13 @@ import { useLogin } from './login-context';
 import { ProfileButton } from './profile-button';
 import { Colors, Fonts, Spacing, Roundness } from '@/constants/theme';
 import { Ionicons } from '@expo/vector-icons';
-import { fetchAttendance } from '@/services/etlab-api';
-import { parseAttendance, SubjectAttendance } from '@/services/etlab-parser';
+import { fetchAttendance, fetchAttendanceHistory } from '@/services/etlab-api';
+import { parseAttendance, parseAttendanceHistory, SubjectAttendance } from '@/services/etlab-parser';
 import { dataCache } from '@/services/data-cache';
 import * as SecureStore from 'expo-secure-store';
+import AttendanceRing from './AttendanceRing';
+import AttendanceHistoryModal from './AttendanceHistoryModal';
+import { AttendanceRecord } from './AttendanceCalendar';
 
 interface SubjectCardProps {
   subject: string;
@@ -30,6 +33,7 @@ interface SubjectCardProps {
   alertType: 'success' | 'warning';
   colors: any;
   targetPercentage: number;
+  attendanceRecords: AttendanceRecord[];
 }
 
 function getSubjectName(code: string): string {
@@ -77,136 +81,73 @@ function SubjectCard({
   alertType,
   colors,
   targetPercentage,
+  attendanceRecords,
 }: SubjectCardProps) {
-  const [expanded, setExpanded] = useState(false);
-  const [simAtt, setSimAtt] = useState(0);
-  const [simMiss, setSimMiss] = useState(0);
-
-  const toggleExpand = () => {
-    if (expanded) {
-      setSimAtt(0);
-      setSimMiss(0);
-    }
-    setExpanded(!expanded);
-  };
+  const [modalVisible, setModalVisible] = useState(false);
 
   // Tiered color: <75% red, 75-79% yellow, 80%+ green
   const progressColor = percentage < 75 ? colors.danger : percentage < 80 ? colors.warning : colors.success;
+  const variant = percentage >= 80 ? 'success' : percentage >= 75 ? 'warning' : 'danger';
   const displayName = toTitleCase(getSubjectName(subject));
 
   return (
-    <View style={[styles.card, { backgroundColor: colors.surfaceLowest, borderColor: colors.outlineVariant }]}>
+    <>
       <TouchableOpacity
-        style={styles.cardHeader}
-        onPress={toggleExpand}
-        activeOpacity={0.75}
+        style={[styles.card, { backgroundColor: colors.surfaceLowest, borderColor: colors.outlineVariant }]}
+        onPress={() => setModalVisible(true)}
+        activeOpacity={0.7}
       >
-        <View style={styles.cardInfo}>
-          <View style={styles.titleRow}>
-            <Ionicons name="book-outline" size={16} color={colors.primary} style={styles.titleIcon} />
-            <Text style={[styles.cardTitle, { color: colors.text }]} numberOfLines={2}>{displayName}</Text>
+        <View style={styles.cardHeader}>
+          <View style={styles.cardInfo}>
+            <View style={styles.titleRow}>
+              <Ionicons name="book-outline" size={16} color={colors.primary} style={styles.titleIcon} />
+              <Text style={[styles.cardTitle, { color: colors.text }]} numberOfLines={2}>{displayName}</Text>
+            </View>
+            {professor ? (
+              <Text style={[styles.cardProf, { color: colors.textSecondary }]}>👤 {professor} ({subject})</Text>
+            ) : (
+              <Text style={[styles.cardProf, { color: colors.textSecondary }]}>{subject} • Attended {attended}/{total}</Text>
+            )}
           </View>
-          {professor ? (
-            <Text style={[styles.cardProf, { color: colors.textSecondary }]}>👤 {professor} ({subject})</Text>
-          ) : (
-            <Text style={[styles.cardProf, { color: colors.textSecondary }]}>{subject} • Logged: {attended}/{total} hrs</Text>
-          )}
+
+          {/* SVG Progress Ring */}
+          <AttendanceRing
+            percentage={percentage}
+            variant={variant}
+          />
         </View>
 
-        {/* Simple visual circle container */}
-        <View style={[styles.percentageContainer, { borderColor: progressColor }]}>
-          <Text style={[styles.percentageText, { color: progressColor }]}>{percentage}%</Text>
+        {/* Compact status pill */}
+        <View
+          style={[
+            styles.statusPill,
+            {
+              backgroundColor: `${progressColor}15`,
+              borderColor: `${progressColor}30`,
+            },
+          ]}
+        >
+          <Text style={[styles.statusPillText, { color: progressColor }]}>
+            {alertText}
+          </Text>
         </View>
       </TouchableOpacity>
 
-      {/* Compact status pill */}
-      <View
-        style={[
-          styles.statusPill,
-          {
-            backgroundColor: `${progressColor}15`,
-            borderColor: `${progressColor}30`,
-          },
-        ]}
-      >
-        <Text style={[styles.statusPillText, { color: progressColor }]}>
-          {alertText}
-        </Text>
-      </View>
-
-      {expanded && (
-        <View style={styles.simulatorContainer}>
-          <View style={[styles.simDivider, { backgroundColor: colors.outlineVariant }]} />
-
-          <Text style={[styles.simulatorTitle, { color: colors.text }]}>🔮 Attendance Simulator</Text>
-
-          <View style={styles.simulatorRow}>
-            <Text style={[styles.simulatorLabel, { color: colors.textSecondary }]}>Attend consecutive classes</Text>
-            <View style={styles.counterGroup}>
-              <TouchableOpacity
-                style={[styles.counterBtn, { backgroundColor: colors.surfaceContainer }]}
-                onPress={() => setSimAtt(Math.max(0, simAtt - 1))}
-              >
-                <Text style={[styles.counterBtnText, { color: colors.text }]}>-</Text>
-              </TouchableOpacity>
-              <Text style={[styles.counterValue, { color: colors.text }]}>{simAtt}</Text>
-              <TouchableOpacity
-                style={[styles.counterBtn, { backgroundColor: colors.surfaceContainer }]}
-                onPress={() => setSimAtt(simAtt + 1)}
-              >
-                <Text style={[styles.counterBtnText, { color: colors.text }]}>+</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-
-          <View style={styles.simulatorRow}>
-            <Text style={[styles.simulatorLabel, { color: colors.textSecondary }]}>Miss consecutive classes</Text>
-            <View style={styles.counterGroup}>
-              <TouchableOpacity
-                style={[styles.counterBtn, { backgroundColor: colors.surfaceContainer }]}
-                onPress={() => setSimMiss(Math.max(0, simMiss - 1))}
-              >
-                <Text style={[styles.counterBtnText, { color: colors.text }]}>-</Text>
-              </TouchableOpacity>
-              <Text style={[styles.counterValue, { color: colors.text }]}>{simMiss}</Text>
-              <TouchableOpacity
-                style={[styles.counterBtn, { backgroundColor: colors.surfaceContainer }]}
-                onPress={() => setSimMiss(simMiss + 1)}
-              >
-                <Text style={[styles.counterBtnText, { color: colors.text }]}>+</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-
-          {/* Result section */}
-          {(() => {
-            const newAtt = attended + simAtt;
-            const newTot = total + simAtt + simMiss;
-            const newPct = newTot > 0 ? Math.round((newAtt / newTot) * 1000) / 10 : 0;
-            // Tiered color matching dashboard
-            const statusColor = newPct < 75 ? colors.danger : newPct < 80 ? colors.warning : colors.success;
-
-            return (
-              <View style={[styles.simResultCard, { backgroundColor: colors.surfaceLow }]}>
-                <View style={styles.simResultLeft}>
-                  <Text style={[styles.simResultLabel, { color: colors.textSecondary }]}>Simulated %</Text>
-                  <Text style={[styles.simResultValue, { color: statusColor }]}>{newPct}%</Text>
-                </View>
-                <View style={styles.simResultRight}>
-                  <Text style={[styles.simResultText, { color: colors.text }]}>
-                    {simAtt === 0 && simMiss === 0 ? (
-                      "Adjust controls above to simulate hypothetical classes."
-                    ) : (
-                      `Simulated: ${newAtt}/${newTot} hrs. You would be ${newPct >= 75 ? 'safe' : 'below target'}!`
-                    )}
-                  </Text>
-                </View>
-              </View>
-            );
-          })()}
-        </View>
-      )}
-    </View>
+      <AttendanceHistoryModal
+        visible={modalVisible}
+        onClose={() => setModalVisible(false)}
+        subject={subject}
+        displayName={displayName}
+        professor={professor}
+        percentage={percentage}
+        attended={attended}
+        total={total}
+        alertText={alertText}
+        colors={colors}
+        targetPercentage={targetPercentage}
+        attendanceRecords={attendanceRecords}
+      />
+    </>
   );
 }
 
@@ -221,10 +162,13 @@ export default function AttendanceDashboard() {
   const { studentId, isLoggedIn, handleSessionExpired } = useLogin();
 
   const [subjects, setSubjects] = useState<SubjectAttendance[]>(dataCache.attendance || []);
-  const [isLoading, setIsLoading] = useState(!dataCache.attendance);
+  const [attendanceRecords, setAttendanceRecords] = useState<AttendanceRecord[]>(dataCache.attendanceHistory || []);
+  const [isLoading, setIsLoading] = useState(!dataCache.attendance || !dataCache.attendanceHistory);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const [targetPercentage, setTargetPercentage] = useState<number>(75);
+  const [containerWidth, setContainerWidth] = useState<number>(0);
+  const [overallModalVisible, setOverallModalVisible] = useState(false);
 
   const [sliderAnim] = useState(new Animated.Value(0));
   const segmentWidth = 100 / OPTIONS.length;
@@ -272,8 +216,12 @@ export default function AttendanceDashboard() {
       return;
     }
 
-    const hasCache = dataCache.attendance && dataCache.attendance.length > 0;
-    const isStale = dataCache.isStale('attendance');
+    const hasCache =
+      dataCache.attendance &&
+      dataCache.attendance.length > 0 &&
+      dataCache.attendanceHistory &&
+      dataCache.attendanceHistory.length > 0;
+    const isStale = dataCache.isStale('attendance') || dataCache.isStale('attendanceHistory');
 
     // Skip network request if we have fresh cached data and aren't forcing a refresh
     if (hasCache && !isStale && !showRefreshingSpinner) {
@@ -288,17 +236,33 @@ export default function AttendanceDashboard() {
     setErrorMsg('');
 
     try {
-      const res = await fetchAttendance(studentId);
-      if (res.sessionExpired) {
+      const [res, resHist] = await Promise.all([
+        fetchAttendance(studentId),
+        fetchAttendanceHistory()
+      ]);
+
+      if (res.sessionExpired || resHist.sessionExpired) {
         handleSessionExpired();
         return;
       }
       if (!res.ok) {
         throw new Error('Failed to retrieve attendance from ETLAB.');
       }
+      if (!resHist.ok) {
+        throw new Error('Failed to retrieve attendance history from ETLAB.');
+      }
+
       const data = parseAttendance(res.html);
+      const parsedRecords = parseAttendanceHistory(resHist.html);
+      console.log(parsedRecords);
+
+      const dataHist = parsedRecords;
+
       setSubjects(data);
+      setAttendanceRecords(dataHist);
+
       await dataCache.setAttendance(data);
+      await dataCache.setAttendanceHistory(dataHist);
     } catch (err: any) {
       if (!hasCache) {
         setErrorMsg(err.message || 'An error occurred while loading attendance.');
@@ -360,6 +324,8 @@ export default function AttendanceDashboard() {
     };
   });
 
+  console.log('ATTENDANCE RECORDS BEFORE CALENDAR:', attendanceRecords);
+
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
       {/* Header bar */}
@@ -392,7 +358,11 @@ export default function AttendanceDashboard() {
           }
         >
           {/* Cumulative Standing Header Card */}
-          <View style={[styles.cumulativeCard, { backgroundColor: cumulativeColor }]}>
+          <TouchableOpacity
+            style={[styles.cumulativeCard, { backgroundColor: cumulativeColor }]}
+            onPress={() => setOverallModalVisible(true)}
+            activeOpacity={0.85}
+          >
             <View>
               <Text style={styles.cumulativeLabel}>CUMULATIVE STANDING</Text>
               <Text style={styles.cumulativeValue}>{cumulative}%</Text>
@@ -400,7 +370,7 @@ export default function AttendanceDashboard() {
             <View style={styles.avatarCircle}>
               <Ionicons name="school" size={24} color="#ffffff" />
             </View>
-          </View>
+          </TouchableOpacity>
 
           {/* Target Attendance Selector */}
           <View style={[styles.targetSelectorContainer, { backgroundColor: colors.surfaceLowest, borderColor: colors.outlineVariant }]}>
@@ -414,6 +384,7 @@ export default function AttendanceDashboard() {
                   backgroundColor: colors.surfaceLow,
                 },
               ]}
+              onLayout={(e) => setContainerWidth(e.nativeEvent.layout.width)}
             >
               {/* Sliding active pill */}
               <Animated.View
@@ -421,13 +392,17 @@ export default function AttendanceDashboard() {
                   styles.activeSegment,
                   {
                     backgroundColor: colors.surfaceLowest,
-                    left: sliderAnim.interpolate({
-                      inputRange: OPTIONS.map((_, i) => i),
-                      outputRange: OPTIONS.map(
-                        (_, i) => `${i * segmentWidth}%`
-                      ),
-                    }),
-                    width: `${segmentWidth}%`,
+                    transform: [
+                      {
+                        translateX: sliderAnim.interpolate({
+                          inputRange: OPTIONS.map((_, i) => i),
+                          outputRange: OPTIONS.map(
+                            (_, i) => i * ((containerWidth - 8) / OPTIONS.length)
+                          ),
+                        }),
+                      },
+                    ],
+                    width: `${segmentWidth - 1.6}%`,
                   },
                 ]}
               />
@@ -470,13 +445,34 @@ export default function AttendanceDashboard() {
               </View>
             ) : (
               subjectsWithAlerts.map((subj, index) => (
-                <SubjectCard key={index} {...subj} colors={colors} targetPercentage={targetPercentage} />
+                <SubjectCard
+                  key={index}
+                  {...subj}
+                  colors={colors}
+                  targetPercentage={targetPercentage}
+                  attendanceRecords={attendanceRecords}
+                />
               ))
             )}
           </View>
 
         </ScrollView>
       )}
+
+      <AttendanceHistoryModal
+        visible={overallModalVisible}
+        onClose={() => setOverallModalVisible(false)}
+        subject="ALL"
+        displayName="Cumulative Standing"
+        professor=""
+        percentage={cumulative}
+        attended={totalAttended}
+        total={totalHours}
+        alertText={cumulative >= targetPercentage ? "Above threshold target" : "Below threshold target"}
+        colors={colors}
+        targetPercentage={targetPercentage}
+        attendanceRecords={attendanceRecords}
+      />
     </SafeAreaView>
   );
 }
@@ -605,20 +601,7 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     marginLeft: 22,
   },
-  percentageContainer: {
-    width: 52,
-    height: 52,
-    borderRadius: Roundness.full,
-    borderWidth: 3,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginLeft: Spacing.two,
-  },
-  percentageText: {
-    fontFamily: Fonts.bodyBold,
-    fontSize: 14,
-    letterSpacing: -0.3,
-  },
+
   statusPill: {
     alignSelf: 'flex-start',
     paddingHorizontal: 12,
@@ -698,6 +681,7 @@ const styles = StyleSheet.create({
   },
   activeSegment: {
     position: 'absolute',
+    left: 4,
     top: 4,
     bottom: 4,
     borderRadius: 999,

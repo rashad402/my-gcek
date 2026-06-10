@@ -3,19 +3,21 @@ import * as SecureStore from 'expo-secure-store';
 
 export const dataCache = {
   attendance: null as any[] | null,
+  attendanceHistory: null as any[] | null,
   results: null as any[] | null,
   assignments: null as any[] | null,
   surveys: null as any[] | null,
 
   lastUpdated: {
     attendance: 0,
+    attendanceHistory: 0,
     results: 0,
     assignments: 0,
     surveys: 0,
   },
 
   /** Check if the cache is stale (older than TTL) */
-  isStale(key: 'attendance' | 'results' | 'assignments' | 'surveys', ttlMs = 10 * 60 * 1000): boolean {
+  isStale(key: 'attendance' | 'attendanceHistory' | 'results' | 'assignments' | 'surveys', ttlMs = 10 * 60 * 1000): boolean {
     const lastTime = this.lastUpdated[key];
     if (!lastTime) return true;
     return Date.now() - lastTime > ttlMs;
@@ -29,6 +31,11 @@ export const dataCache = {
       if (legacyAtt) {
         console.log('[CACHE CLEANUP] Deleting legacy SecureStore cache_attendance');
         await SecureStore.deleteItemAsync('cache_attendance');
+      }
+      const legacyAttHist = await SecureStore.getItemAsync('cache_attendance_history');
+      if (legacyAttHist) {
+        console.log('[CACHE CLEANUP] Deleting legacy SecureStore cache_attendance_history');
+        await SecureStore.deleteItemAsync('cache_attendance_history');
       }
       const legacyRes = await SecureStore.getItemAsync('cache_results');
       if (legacyRes) {
@@ -56,6 +63,13 @@ export const dataCache = {
         const parsed = parseStoredCache(att);
         this.attendance = parsed.data;
         this.lastUpdated.attendance = parsed.timestamp;
+      }
+
+      const attHist = await AsyncStorage.getItem('cache_attendance_history');
+      if (attHist) {
+        const parsed = parseStoredCache(attHist);
+        this.attendanceHistory = parsed.data;
+        this.lastUpdated.attendanceHistory = parsed.timestamp;
       }
       
       const res = await AsyncStorage.getItem('cache_results');
@@ -91,6 +105,17 @@ export const dataCache = {
       await AsyncStorage.setItem('cache_attendance', valStr);
     } catch (err) {
       console.warn('Failed to write attendance cache to AsyncStorage:', err);
+    }
+  },
+
+  async setAttendanceHistory(data: any[]) {
+    this.attendanceHistory = data;
+    this.lastUpdated.attendanceHistory = Date.now();
+    try {
+      const valStr = JSON.stringify({ data, timestamp: this.lastUpdated.attendanceHistory });
+      await AsyncStorage.setItem('cache_attendance_history', valStr);
+    } catch (err) {
+      console.warn('Failed to write attendance history cache to AsyncStorage:', err);
     }
   },
 
@@ -130,17 +155,20 @@ export const dataCache = {
   /** Clear cache upon logging out */
   async clear() {
     this.attendance = null;
+    this.attendanceHistory = null;
     this.results = null;
     this.assignments = null;
     this.surveys = null;
     this.lastUpdated = {
       attendance: 0,
+      attendanceHistory: 0,
       results: 0,
       assignments: 0,
       surveys: 0,
     };
     try {
       await AsyncStorage.removeItem('cache_attendance');
+      await AsyncStorage.removeItem('cache_attendance_history');
       await AsyncStorage.removeItem('cache_results');
       await AsyncStorage.removeItem('cache_assignments');
       await AsyncStorage.removeItem('cache_surveys');

@@ -349,6 +349,12 @@ export function fetchAttendance(studentId: string) {
   );
 }
 
+/** Fetch the per-day attendance history page. */
+export function fetchAttendanceHistory() {
+  return fetchPage(`${BASE_URL}/ktuacademics/student/attendance`);
+}
+
+
 /** Fetch the results page. */
 export function fetchResults() {
   return fetchPage(`${BASE_URL}/ktuacademics/student/results`);

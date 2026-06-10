@@ -48,8 +48,7 @@ function extractTableRows(html: string): string[][] {
   let trMatch: RegExpExecArray | null;
   while ((trMatch = trRegex.exec(html)) !== null) {
     const rowHtml = trMatch[1];
-    // Skip header rows
-    if (/<th[\s>]/i.test(rowHtml)) continue;
+
     // Extract <td> contents
     const cells: string[] = [];
     const tdRegex = /<td[^>]*>([\s\S]*?)<\/td>/gi;
@@ -202,6 +201,152 @@ export function parseAttendance(html: string): SubjectAttendance[] {
   }
 
   return results;
+}
+
+// ─── Attendance History (per-day) ────────────────────────────────────────────
+
+export interface AttendanceRecord {
+  /** Date string in 'YYYY-MM-DD' format */
+  date: string;
+  /** Subject / course code */
+  subject: string;
+  /** Period / hour number */
+  hour: number;
+  /** Attendance status for this hour */
+  status: 'present' | 'absent';
+}
+
+/**
+ * Parse the ETLAB per-day attendance page HTML.
+ *
+ * Expected table columns (may vary):
+ *   Date | Subject / Course | Period / Hour | Status (Present / Absent)
+ *
+ * The page is at /ktuacademics/student/attendance
+ */
+export function parseAttendanceHistory(html: string): AttendanceRecord[] {
+  const records: AttendanceRecord[] = [];
+  
+  // Extract month and year
+  let year = 2026;
+  let yearMatch = html.match(/<input[^>]*name="year"[^>]*value="(\d+)"/i);
+  if (!yearMatch) {
+    yearMatch = html.match(/<select[^>]*name="year"[^>]*>[\s\S]*?<option[^>]*value="(\d+)"[^>]*selected/i);
+  }
+  if (yearMatch) {
+    year = parseInt(yearMatch[1], 10);
+  }
+
+  let month = 6; // June as fallback
+  let monthMatch = html.match(/<input[^>]*name="month"[^>]*value="(\d+)"/i);
+  if (!monthMatch) {
+    monthMatch = html.match(/<select[^>]*name="month"[^>]*>[\s\S]*?<option[^>]*value="(\d+)"[^>]*selected/i);
+  }
+  if (monthMatch) {
+    month = parseInt(monthMatch[1], 10);
+  }
+
+  // Find the table with ID itsthetable
+  const tableMatch = html.match(/<table[^>]*id=["']itsthetable["'][^>]*>([\s\S]*?)<\/table>/i);
+  if (!tableMatch) return records;
+
+  const tableBody = tableMatch[1];
+
+  // Match each <tr>...</tr> in the tbody
+  const trRegex = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
+  let trMatch: RegExpExecArray | null;
+
+  while ((trMatch = trRegex.exec(tableBody)) !== null) {
+    console.log('ROW FOUND');
+    const rowHtml = trMatch[1];
+
+    // Check if it's a header row
+    if (rowHtml.includes('<th>Date</th>') || rowHtml.includes('<th>Period 1</th>')) {
+      continue;
+    }
+
+    // Extract the date/day number from the <th> in this row
+    const thMatch = rowHtml.match(/<th[^>]*>([\s\S]*?)<\/th>/i);
+    if (!thMatch) continue;
+
+    const dayText = stripTags(thMatch[1]).replace(/[^\d]/g, '');
+    const day = parseInt(dayText, 10);
+    if (isNaN(day)) continue;
+
+    // Format the date string: YYYY-MM-DD
+    const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+
+    // Extract all <td> cells
+    const tdRegex = /<td[^>]*>([\s\S]*?)<\/td>/gi;
+    let tdMatch: RegExpExecArray | null;
+    let periodIdx = 0;
+
+    while ((tdMatch = tdRegex.exec(rowHtml)) !== null) {
+      periodIdx++;
+      const cellHtml = tdMatch[1];
+      console.log('TD RAW:', cellHtml.slice(0, 120));
+
+      // Extract class name to determine status
+      const classMatch = tdMatch[0].match(/class=["']([^"']+)["']/i);
+      const className = classMatch ? classMatch[1].toLowerCase() : '';
+
+      // Parse status (support present, absent, and other active/excusable classes)
+      const isPresent = className.includes('present') || className.includes('dutyleave') || className.includes('onduty') || className.includes('special');
+      const isAbsent = className.includes('absent') || className.includes('leave');
+      const status = isPresent ? 'present' : isAbsent ? 'absent' : null;
+      console.log('STATUS:', className);
+
+      // Extract subject code from the <a> tag using [A-Z]{3}\d{3} pattern
+      const aMatch = cellHtml.match(/<a[^>]*>([\s\S]*?)<\/a>/i);
+      let subjectCode: string | null = null;
+      if (aMatch) {
+        let aContent = aMatch[1].replace(/<span[^>]*>[\s\S]*?<\/span>/gi, '');
+        const rawSubject = decodeEntities(stripTags(aContent)).trim();
+        console.log('SUBJECT:', rawSubject);
+
+        const codeMatch = rawSubject.match(/[A-Z]{3}\d{3}/);
+        subjectCode = codeMatch ? codeMatch[0] : null;
+        console.log('SUBJECT CODE:', subjectCode);
+      }
+
+      // Skip empty, holiday, N/A cells
+      if (!status || !subjectCode) continue;
+
+      console.log({
+        date: dateStr,
+        subjectCode,
+        status,
+      });
+
+      records.push({
+        date: dateStr,
+        subject: subjectCode,
+        hour: periodIdx,
+        status,
+      });
+    }
+  }
+
+  console.log('PARSED RECORDS:', records);
+  return records;
+}
+
+/**
+ * Normalize various date formats to YYYY-MM-DD.
+ * Handles: DD-MM-YYYY, DD/MM/YYYY, YYYY-MM-DD, YYYY/MM/DD
+ */
+export function normalizeDate(raw: string): string | null {
+  // YYYY-MM-DD or YYYY/MM/DD
+  let match = raw.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/);
+  if (match) {
+    return `${match[1]}-${match[2].padStart(2, '0')}-${match[3].padStart(2, '0')}`;
+  }
+  // DD-MM-YYYY or DD/MM/YYYY
+  match = raw.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/);
+  if (match) {
+    return `${match[3]}-${match[2].padStart(2, '0')}-${match[1].padStart(2, '0')}`;
+  }
+  return null;
 }
 
 // ─── Results ────────────────────────────────────────────────────────────────
