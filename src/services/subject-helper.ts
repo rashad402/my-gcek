@@ -73,13 +73,41 @@ const staticMap: Record<string, string> = {
   'CST435': 'Computer Graphics',
   'CST445': 'Python For Engineers',
   'CST455': 'Object Oriented Concepts',
+
+  'CST414': 'Deep Learning',
+  'CST424': 'Programming Paradigms',
+  'CST434': 'Cryptography',
+  'CST444': 'Soft Computing',
+  'CST454': 'Fuzzy Set Theory And Applications',
+  'CST464': 'Embedded Systems',
+  'CST474': 'Computer Vision',
+
+  'CST416': 'Formal Methods And Tools In Software Engineering',
+  'CST426': 'Client Server Architecture',
+  'CST436': 'Parallel Computing',
+  'CST446': 'Data Compression Techniques',
+  'CST456': 'Unified Extended Firmware Interface',
+  'CST466': 'Data Mining',
+  'CST476': 'Mobile Computing',
+
+  'CST418': 'High Performance Computing',
+  'CST428': 'Block Chain Technologies',
+  'CST438': 'Image Processing Technique',
+  'CST448': 'Internet Of Things',
+  'CST458': 'Software Testing',
+  'CST468': 'Bioinformatics',
+  'CST478': 'Computational Linguistics',
   
-  // Fourth-year Core (Semester 7)
+  // Fourth-year Core (Semester 7/8)
   'CST401': 'Artificial Intelligence',
   'MCN401': 'Industrial Safety Engineering',
   'CSL411': 'Compiler Lab',
   'CSQ413': 'Seminar',
   'CSD415': 'Project Phase I',
+
+  'CST402': 'Distributed Computing',
+  'CST404': 'Comprehensive Course Viva',
+  'CSD416': 'Project Phase II',
 };
 
 /**
