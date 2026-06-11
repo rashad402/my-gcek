@@ -36,12 +36,17 @@ interface SubjectCardProps {
   attendanceRecords: AttendanceRecord[];
 }
 
-function getSubjectName(code: string): string {
-  const cleanCode = code.trim().toUpperCase();
+function getSubjectName(subject: string): string {
+  const match = subject.match(/[A-Z]{3}\d{3}/i);
+  const cleanCode = match ? match[0].toUpperCase() : subject.trim().toUpperCase();
 
   // 1. Try to find in dynamic results cache
   if (dataCache.results) {
-    const found = dataCache.results.find(r => r.subject.trim().toUpperCase() === cleanCode);
+    const found = dataCache.results.find(r => {
+      const rMatch = r.subject.match(/[A-Z]{3}\d{3}/i);
+      const rCode = rMatch ? rMatch[0].toUpperCase() : r.subject.trim().toUpperCase();
+      return rCode === cleanCode;
+    });
     if (found && found.subjectName) {
       return found.subjectName;
     }
@@ -59,7 +64,7 @@ function getSubjectName(code: string): string {
     'CST362': 'Programming in Python',
   };
 
-  return staticMap[cleanCode] || code;
+  return staticMap[cleanCode] || subject;
 }
 
 function toTitleCase(str: string) {
@@ -253,16 +258,30 @@ export default function AttendanceDashboard() {
       }
 
       const data = parseAttendance(res.html);
-      const parsedRecords = parseAttendanceHistory(resHist.html);
-      console.log(parsedRecords);
+      
+      // Parse all fetched months and concatenate them
+      const rawRecords: AttendanceRecord[] = [];
+      for (const html of resHist.htmls) {
+        const parsed = parseAttendanceHistory(html);
+        rawRecords.push(...parsed);
+      }
 
-      const dataHist = parsedRecords;
+      // Deduplicate records on date + hour key
+      const seen = new Set<string>();
+      const deduplicatedRecords: AttendanceRecord[] = [];
+      for (const record of rawRecords) {
+        const key = `${record.date}-${record.hour}`;
+        if (!seen.has(key)) {
+          seen.add(key);
+          deduplicatedRecords.push(record);
+        }
+      }
 
       setSubjects(data);
-      setAttendanceRecords(dataHist);
+      setAttendanceRecords(deduplicatedRecords);
 
       await dataCache.setAttendance(data);
-      await dataCache.setAttendanceHistory(dataHist);
+      await dataCache.setAttendanceHistory(deduplicatedRecords);
     } catch (err: any) {
       if (!hasCache) {
         setErrorMsg(err.message || 'An error occurred while loading attendance.');
@@ -324,7 +343,7 @@ export default function AttendanceDashboard() {
     };
   });
 
-  console.log('ATTENDANCE RECORDS BEFORE CALENDAR:', attendanceRecords);
+
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>

@@ -4,9 +4,11 @@
  * Pure functions that convert raw ETLAB HTML pages into the TypeScript
  * data structures used by the app's UI screens.
  *
- * Uses regex-based parsing (zero dependencies). If parsing becomes
- * fragile, `fast-html-parser` can be added as a fallback.
+ * Uses Cheerio for attendance history parsing (proper DOM traversal)
+ * and regex-based parsing for other sections.
  */
+
+import * as cheerio from 'cheerio/slim';
 
 // ─── Shared helpers ─────────────────────────────────────────────────────────
 
@@ -203,131 +205,170 @@ export function parseAttendance(html: string): SubjectAttendance[] {
   return results;
 }
 
-// ─── Attendance History (per-day) ────────────────────────────────────────────
+/**
+ * The form options available on the attendance history page.
+ * Used to POST for specific month/year combinations.
+ */
+export interface AttendanceFormOptions {
+  semester: string;
+  months: { value: string; label: string }[];
+  years: string[];
+  selectedMonth: string;
+  selectedYear: string;
+}
+
+/**
+ * Extract the form dropdown options from the attendance page HTML.
+ * This tells us which months/years are available to query.
+ */
+export function parseAttendanceFormOptions(html: string): AttendanceFormOptions {
+  const $ = cheerio.load(html);
+
+  const semester = (
+    $('select[name="semester"] option:selected').val() ||
+    $('select[name="semester"] option[selected]').val() ||
+    ''
+  ) as string;
+
+  const months: { value: string; label: string }[] = [];
+  $('select[name="month"] option').each((_, el) => {
+    const val = $(el).val() as string;
+    const label = $(el).text().trim();
+    if (val) months.push({ value: val, label });
+  });
+
+  const years: string[] = [];
+  $('select[name="year"] option').each((_, el) => {
+    const val = $(el).val() as string;
+    if (val) years.push(val);
+  });
+
+  const selectedMonth = (
+    $('select[name="month"] option:selected').val() ||
+    $('select[name="month"] option[selected]').val() ||
+    ''
+  ) as string;
+
+  const selectedYear = (
+    $('select[name="year"] option:selected').val() ||
+    $('select[name="year"] option[selected]').val() ||
+    ''
+  ) as string;
+
+  console.log('[parseAttendanceFormOptions]', {
+    semester,
+    months: months.map(m => `${m.label}(${m.value})`).join(', '),
+    years: years.join(', '),
+    selectedMonth,
+    selectedYear,
+  });
+
+  return { semester, months, years, selectedMonth, selectedYear };
+}
 
 export interface AttendanceRecord {
   /** Date string in 'YYYY-MM-DD' format */
   date: string;
-  /** Subject / course code */
   subject: string;
-  /** Period / hour number */
   hour: number;
-  /** Attendance status for this hour */
   status: 'present' | 'absent';
 }
 
 /**
- * Parse the ETLAB per-day attendance page HTML.
+ * Parse the ETLAB per-day attendance page HTML using Cheerio.
  *
- * Expected table columns (may vary):
- *   Date | Subject / Course | Period / Hour | Status (Present / Absent)
+ * Uses proper DOM traversal to extract subject codes from the first
+ * text node inside `<a class="tool-tip">`, avoiding tooltip `<span>` content.
  *
  * The page is at /ktuacademics/student/attendance
  */
 export function parseAttendanceHistory(html: string): AttendanceRecord[] {
   const records: AttendanceRecord[] = [];
+  const $ = cheerio.load(html);
+
+  // Get year and month from form selects/inputs, with robust attribute selector fallbacks for React Native compatibility
+  const yearVal = ($('select[name="year"] option:selected').val() || $('select[name="year"] option[selected]').val()) as string;
+  const monthVal = ($('select[name="month"] option:selected').val() || $('select[name="month"] option[selected]').val()) as string;
   
-  // Extract month and year
-  let year = 2026;
-  let yearMatch = html.match(/<input[^>]*name="year"[^>]*value="(\d+)"/i);
-  if (!yearMatch) {
-    yearMatch = html.match(/<select[^>]*name="year"[^>]*>[\s\S]*?<option[^>]*value="(\d+)"[^>]*selected/i);
-  }
-  if (yearMatch) {
-    year = parseInt(yearMatch[1], 10);
-  }
+  const parsedYear = parseInt(yearVal, 10);
+  const parsedMonth = parseInt(monthVal, 10);
+  const now = new Date();
 
-  let month = 6; // June as fallback
-  let monthMatch = html.match(/<input[^>]*name="month"[^>]*value="(\d+)"/i);
-  if (!monthMatch) {
-    monthMatch = html.match(/<select[^>]*name="month"[^>]*>[\s\S]*?<option[^>]*value="(\d+)"[^>]*selected/i);
-  }
-  if (monthMatch) {
-    month = parseInt(monthMatch[1], 10);
+  if (isNaN(parsedYear) || isNaN(parsedMonth)) {
+    console.warn(
+      `[Parser] Could not extract year/month from attendance HTML. ` +
+      `Falling back to current date: ${now.getFullYear()}-${now.getMonth() + 1}. ` +
+      `yearVal="${yearVal}", monthVal="${monthVal}"`
+    );
   }
 
-  // Find the table with ID itsthetable
-  const tableMatch = html.match(/<table[^>]*id=["']itsthetable["'][^>]*>([\s\S]*?)<\/table>/i);
-  if (!tableMatch) return records;
+  const year = isNaN(parsedYear) ? now.getFullYear() : parsedYear;
+  const month = isNaN(parsedMonth) ? (now.getMonth() + 1) : parsedMonth;
 
-  const tableBody = tableMatch[1];
+  console.log('[parseAttendanceHistory] Parsed keys:', { yearVal, monthVal, year, month });
 
-  // Match each <tr>...</tr> in the tbody
-  const trRegex = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
-  let trMatch: RegExpExecArray | null;
+  // Check if the table exists
+  const $table = $('#itsthetable');
+  if ($table.length === 0) {
+    console.warn('[Parser] #itsthetable not found in attendance history HTML.');
+    return records;
+  }
 
-  while ((trMatch = trRegex.exec(tableBody)) !== null) {
-    console.log('ROW FOUND');
-    const rowHtml = trMatch[1];
+  const $tbody = $table.find('tbody');
+  const $rows = $tbody.find('tr');
+  const $allRows = $rows.length > 0 ? $rows : $table.find('tr');
 
-    // Check if it's a header row
-    if (rowHtml.includes('<th>Date</th>') || rowHtml.includes('<th>Period 1</th>')) {
-      continue;
+  $allRows.each((rowIdx, row) => {
+    const $row = $(row);
+
+    // Get day number from <th>
+    const thText = $row.find('th').text();
+    const dayText = thText.replace(/\D/g, '');
+    const day = parseInt(dayText);
+    if (isNaN(day)) {
+      return;
     }
 
-    // Extract the date/day number from the <th> in this row
-    const thMatch = rowHtml.match(/<th[^>]*>([\s\S]*?)<\/th>/i);
-    if (!thMatch) continue;
-
-    const dayText = stripTags(thMatch[1]).replace(/[^\d]/g, '');
-    const day = parseInt(dayText, 10);
-    if (isNaN(day)) continue;
-
-    // Format the date string: YYYY-MM-DD
     const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
 
-    // Extract all <td> cells
-    const tdRegex = /<td[^>]*>([\s\S]*?)<\/td>/gi;
-    let tdMatch: RegExpExecArray | null;
-    let periodIdx = 0;
+    // Each <td> is a period
+    const $cells = $row.find('td');
 
-    while ((tdMatch = tdRegex.exec(rowHtml)) !== null) {
-      periodIdx++;
-      const cellHtml = tdMatch[1];
-      console.log('TD RAW:', cellHtml.slice(0, 120));
+    $cells.each((periodIdx, cell) => {
+      const $cell = $(cell);
+      const className = $cell.attr('class') || '';
 
-      // Extract class name to determine status
-      const classMatch = tdMatch[0].match(/class=["']([^"']+)["']/i);
-      const className = classMatch ? classMatch[1].toLowerCase() : '';
+      const isPresent = className.includes('present');
+      const isAbsent = className.includes('absent');
 
-      // Parse status (support present, absent, and other active/excusable classes)
-      const isPresent = className.includes('present') || className.includes('dutyleave') || className.includes('onduty') || className.includes('special');
-      const isAbsent = className.includes('absent') || className.includes('leave');
-      const status = isPresent ? 'present' : isAbsent ? 'absent' : null;
-      console.log('STATUS:', className);
+      if (!isPresent && !isAbsent) return;
 
-      // Extract subject code from the <a> tag using [A-Z]{3}\d{3} pattern
-      const aMatch = cellHtml.match(/<a[^>]*>([\s\S]*?)<\/a>/i);
-      let subjectCode: string | null = null;
-      if (aMatch) {
-        let aContent = aMatch[1].replace(/<span[^>]*>[\s\S]*?<\/span>/gi, '');
-        const rawSubject = decodeEntities(stripTags(aContent)).trim();
-        console.log('SUBJECT:', rawSubject);
+      // Get subject — first text node inside <a>, before the <span>
+      const $a = $cell.find('a.tool-tip');
+      const rawText = $a.contents().first().text().trim();
+      const codeMatch = rawText.match(/[A-Z]{2,4}\d{2,4}[A-Z]?/i);
 
-        const codeMatch = rawSubject.match(/[A-Z]{3}\d{3}/);
-        subjectCode = codeMatch ? codeMatch[0] : null;
-        console.log('SUBJECT CODE:', subjectCode);
+      let subjectCode: string;
+      if (codeMatch) {
+        subjectCode = codeMatch[0].toUpperCase();
+      } else {
+        // Fallback: use raw text up to ' - ' separator, or full text
+        const dashIdx = rawText.indexOf(' - ');
+        subjectCode = (dashIdx > 0 ? rawText.substring(0, dashIdx) : rawText).trim();
+        if (!subjectCode) return; // truly empty cell — skip
+        console.warn(`[Parser] Non-standard subject code: "${subjectCode}" from raw text: "${rawText}"`);
       }
-
-      // Skip empty, holiday, N/A cells
-      if (!status || !subjectCode) continue;
-
-      console.log({
-        date: dateStr,
-        subjectCode,
-        status,
-      });
 
       records.push({
         date: dateStr,
         subject: subjectCode,
-        hour: periodIdx,
-        status,
+        hour: periodIdx + 1,
+        status: isPresent ? 'present' : 'absent',
       });
-    }
-  }
+    });
+  });
 
-  console.log('PARSED RECORDS:', records);
+  console.log(`[parseAttendanceHistory] Successfully parsed ${records.length} records for ${year}-${month}`);
   return records;
 }
 

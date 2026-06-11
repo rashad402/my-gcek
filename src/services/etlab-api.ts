@@ -11,6 +11,7 @@
  */
 
 import { Platform } from 'react-native';
+import { parseAttendanceFormOptions } from './etlab-parser';
 
 const BASE_URL = 'https://gcek.etlab.in';
 
@@ -349,9 +350,147 @@ export function fetchAttendance(studentId: string) {
   );
 }
 
-/** Fetch the per-day attendance history page. */
-export function fetchAttendanceHistory() {
-  return fetchPage(`${BASE_URL}/ktuacademics/student/attendance`);
+/** Extract CSRF token and name from general page HTML. */
+function extractPageCsrf(html: string): { name: string; token: string } | null {
+  const metaMatch = html.match(/meta\s+name\s*=\s*["']csrf-token["']\s+content\s*=\s*["']([^"']+)["']/i);
+  const metaToken = metaMatch ? metaMatch[1] : null;
+
+  const inputMatch = html.match(/input[^>]*name\s*=\s*["'](_csrf[^"']*)["'][^>]*value\s*=\s*["']([^"']+)["']/i)
+    || html.match(/input[^>]*value\s*=\s*["']([^"']+)["'][^>]*name\s*=\s*["'](_csrf[^"']*)["']/i);
+
+  if (inputMatch) {
+    const isNameFirst = inputMatch[0].indexOf('name') < inputMatch[0].indexOf('value');
+    const name = isNameFirst ? inputMatch[1] : inputMatch[2];
+    const token = isNameFirst ? inputMatch[2] : inputMatch[1];
+    return { name, token };
+  }
+
+  if (metaToken) {
+    const paramMatch = html.match(/meta\s+name\s*=\s*["']csrf-param["']\s+content\s*=\s*["']([^"']+)["']/i);
+    const paramName = paramMatch ? paramMatch[1] : '_csrf-frontend';
+    return { name: paramName, token: metaToken };
+  }
+
+  return null;
+}
+
+export interface FetchAttendanceHistoryResult {
+  ok: boolean;
+  htmls: string[];
+  sessionExpired: boolean;
+}
+
+/** Fetch the per-day attendance history pages for all months in the current semester. */
+export async function fetchAttendanceHistory(): Promise<FetchAttendanceHistoryResult> {
+  const initialRes = await fetchPage(`${BASE_URL}/ktuacademics/student/attendance`);
+  if (!initialRes.ok || initialRes.sessionExpired) {
+    return { ok: initialRes.ok, htmls: [], sessionExpired: initialRes.sessionExpired };
+  }
+
+  const htmls = [initialRes.html];
+  
+  try {
+    const options = parseAttendanceFormOptions(initialRes.html);
+    const { semester, months, selectedMonth, selectedYear } = options;
+    
+    if (!semester || months.length === 0 || !selectedYear) {
+      console.log('[API] No attendance options found or semester is empty. Returning initial page only.');
+      return { ok: true, htmls, sessionExpired: false };
+    }
+
+    // Determine the year for each month option using the drop-detection algorithm
+    const selectedYearInt = parseInt(selectedYear, 10);
+    const monthYears: { month: string; year: string }[] = [];
+
+    let transitionFound = false;
+    for (let i = 0; i < months.length - 1; i++) {
+      const m1 = parseInt(months[i].value, 10);
+      const m2 = parseInt(months[i + 1].value, 10);
+      if (m1 > m2) {
+        transitionFound = true;
+        break;
+      }
+    }
+
+    if (transitionFound) {
+      let passedDrop = false;
+      for (let i = 0; i < months.length; i++) {
+        if (i > 0 && parseInt(months[i].value, 10) < parseInt(months[i - 1].value, 10)) {
+          passedDrop = true;
+        }
+        const yearForMonth = passedDrop ? selectedYearInt : (selectedYearInt - 1);
+        monthYears.push({
+          month: months[i].value,
+          year: yearForMonth.toString(),
+        });
+      }
+    } else {
+      for (const m of months) {
+        monthYears.push({
+          month: m.value,
+          year: selectedYear,
+        });
+      }
+    }
+
+    // Extract CSRF token from the initial HTML
+    const csrf = extractPageCsrf(initialRes.html);
+
+    console.log('[API] Form options parsed. Fetching additional months:', monthYears.map(my => `${my.year}-${my.month}`));
+
+    // Fetch other months (excluding the one we already got in the initial GET request)
+    for (const my of monthYears) {
+      if (my.month === selectedMonth && my.year === selectedYear) {
+        // Already got this month in initial GET request
+        continue;
+      }
+
+      console.log(`[API] POSTing for month=${my.month}, year=${my.year}, semester=${semester}...`);
+
+      const formBody = new URLSearchParams();
+      if (csrf) {
+        formBody.append(csrf.name, csrf.token);
+      }
+      formBody.append('semester', semester);
+      formBody.append('month', my.month);
+      formBody.append('year', my.year);
+
+      const postRes = await fetchWithTimeout(`${BASE_URL}/ktuacademics/student/attendance`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'User-Agent': 'MyGCEK/1.0',
+          'Origin': BASE_URL,
+          'Referer': `${BASE_URL}/ktuacademics/student/attendance`,
+        },
+        body: formBody.toString(),
+        credentials: 'include',
+      }, 12000, 2);
+
+      if (postRes.status >= 300 && postRes.status < 400) {
+        const location = postRes.headers.get('location') || '';
+        if (location.includes('login') || location === '/' || location === `${BASE_URL}/`) {
+          return { ok: false, htmls: [], sessionExpired: true };
+        }
+      }
+
+      if (!postRes.ok) {
+        console.warn(`[API] POST failed for month=${my.month}, year=${my.year} with status: ${postRes.status}`);
+        continue;
+      }
+
+      const postHtml = await postRes.text();
+      if (postHtml.includes('LoginForm[username]') || postHtml.includes('LoginForm[password]')) {
+        return { ok: false, htmls: [], sessionExpired: true };
+      }
+
+      htmls.push(postHtml);
+    }
+  } catch (err) {
+    console.error('[API] Error fetching other months of attendance history:', err);
+  }
+
+  return { ok: true, htmls, sessionExpired: false };
 }
 
 

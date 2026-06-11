@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   StyleSheet,
   View,
@@ -43,29 +43,41 @@ export default function AttendanceCalendar({ records, subjectCode, colors }: Pro
 
   const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
 
-  // Log raw records before useMemo
-  console.log('ALL RECORDS:', records);
+  // Auto-navigate to the month that has records
+  useEffect(() => {
+    if (records.length > 0) {
+      // Find the most recent record's date by sorting them chronologically first
+      const sorted = [...records].sort((a, b) => a.date.localeCompare(b.date));
+      const lastRecord = sorted[sorted.length - 1];
+      const parts = lastRecord.date.split('-');
+      if (parts.length === 3) {
+        const recYear = parseInt(parts[0], 10);
+        const recMonth = parseInt(parts[1], 10) - 1; // Convert to 0-indexed
+        if (!isNaN(recYear) && !isNaN(recMonth)) {
+          setCurrentYear(recYear);
+          setCurrentMonth(recMonth);
+        }
+      }
+    }
+  }, [records]);
 
   // Filter records for this subject and build a map: date -> 'present' | 'absent' | 'partial'
   const dayStatusMap = useMemo(() => {
     const map: Record<string, 'present' | 'absent' | 'partial'> = {};
-    const subjectRecords = !subjectCode || subjectCode === 'ALL'
+
+    const getCode = (str: string) => {
+      const match = str.match(/[A-Z]{2,4}\d{2,4}[A-Z]?/i);
+      return match ? match[0].toUpperCase() : str.trim().toUpperCase();
+    };
+
+    const targetCode = subjectCode ? getCode(subjectCode) : '';
+
+    const isAllMode = !subjectCode || subjectCode === 'ALL' || subjectCode.trim() === '';
+    const subjectRecords = isAllMode
       ? records
       : records.filter(
-          r => r.subject.trim().toUpperCase() === subjectCode.trim().toUpperCase()
+          r => getCode(r.subject) === targetCode
         );
-
-    // Verify subject filtering
-    console.log('SUBJECT CODE:', subjectCode);
-    console.log('FILTERED RECORDS:', subjectRecords);
-
-    // Log exact subject strings (using JSON.stringify to catch spaces/newlines)
-    subjectRecords.forEach(r => {
-      console.log({
-        parsedSubject: JSON.stringify(r.subject),
-        filterSubject: JSON.stringify(subjectCode),
-      });
-    });
 
     // Group by date
     const byDate: Record<string, AttendanceRecord[]> = {};
@@ -85,9 +97,6 @@ export default function AttendanceCalendar({ records, subjectCode, colors }: Pro
         map[date] = 'partial';
       }
     }
-
-    // Verify calendar map
-    console.log('DAY STATUS MAP:', map);
 
     return map;
   }, [records, subjectCode]);
@@ -113,9 +122,7 @@ export default function AttendanceCalendar({ records, subjectCode, colors }: Pro
     }
   };
 
-  // Verify calendar month and record dates
-  console.log('CURRENT MONTH:', currentMonth + 1, currentYear);
-  console.log('RECORD DATES:', records.map(r => r.date));
+
 
   // Build grid cells
   const cells: (number | null)[] = [];
