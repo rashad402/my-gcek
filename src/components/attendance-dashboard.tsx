@@ -15,14 +15,16 @@ import { useLogin } from './login-context';
 import { ProfileButton } from './profile-button';
 import { Colors, Fonts, Spacing, Roundness } from '@/constants/theme';
 import { Ionicons } from '@expo/vector-icons';
-import { fetchAttendance, fetchAttendanceHistory } from '@/services/etlab-api';
-import { parseAttendance, parseAttendanceHistory, SubjectAttendance } from '@/services/etlab-parser';
+import { fetchAttendance, fetchAttendanceHistory, fetchTimetable } from '@/services/etlab-api';
+import { parseAttendance, parseAttendanceHistory, parseTimetable, SubjectAttendance, TimetableData } from '@/services/etlab-parser';
 import { dataCache } from '@/services/data-cache';
 import * as SecureStore from 'expo-secure-store';
 import { getSubjectName } from '@/services/subject-helper';
 import AttendanceRing from './AttendanceRing';
 import AttendanceHistoryModal from './AttendanceHistoryModal';
 import { AttendanceRecord } from './AttendanceCalendar';
+import TimetableModal from './TimetableModal';
+
 
 interface SubjectCardProps {
   subject: string;
@@ -139,12 +141,14 @@ export default function AttendanceDashboard() {
 
   const [subjects, setSubjects] = useState<SubjectAttendance[]>(dataCache.attendance || []);
   const [attendanceRecords, setAttendanceRecords] = useState<AttendanceRecord[]>(dataCache.attendanceHistory || []);
-  const [isLoading, setIsLoading] = useState(!dataCache.attendance || !dataCache.attendanceHistory);
+  const [timetable, setTimetable] = useState<TimetableData | null>(dataCache.timetable || null);
+  const [isLoading, setIsLoading] = useState(!dataCache.attendance || !dataCache.attendanceHistory || !dataCache.timetable);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const [targetPercentage, setTargetPercentage] = useState<number>(75);
   const [containerWidth, setContainerWidth] = useState<number>(0);
   const [overallModalVisible, setOverallModalVisible] = useState(false);
+  const [timetableModalVisible, setTimetableModalVisible] = useState(false);
 
   const [sliderAnim] = useState(new Animated.Value(0));
   const segmentWidth = 100 / OPTIONS.length;
@@ -196,8 +200,9 @@ export default function AttendanceDashboard() {
       dataCache.attendance &&
       dataCache.attendance.length > 0 &&
       dataCache.attendanceHistory &&
-      dataCache.attendanceHistory.length > 0;
-    const isStale = dataCache.isStale('attendance') || dataCache.isStale('attendanceHistory');
+      dataCache.attendanceHistory.length > 0 &&
+      dataCache.timetable;
+    const isStale = dataCache.isStale('attendance') || dataCache.isStale('attendanceHistory') || dataCache.isStale('timetable');
 
     // Skip network request if we have fresh cached data and aren't forcing a refresh
     if (hasCache && !isStale && !showRefreshingSpinner) {
@@ -212,12 +217,17 @@ export default function AttendanceDashboard() {
     setErrorMsg('');
 
     try {
-      const [res, resHist] = await Promise.all([
+      const fetchTimetablePromise = (!dataCache.timetable || dataCache.isStale('timetable') || showRefreshingSpinner)
+        ? fetchTimetable()
+        : null;
+
+      const [res, resHist, resTimetable] = await Promise.all([
         fetchAttendance(studentId),
-        fetchAttendanceHistory()
+        fetchAttendanceHistory(),
+        fetchTimetablePromise,
       ]);
 
-      if (res.sessionExpired || resHist.sessionExpired) {
+      if (res.sessionExpired || resHist.sessionExpired || (resTimetable && resTimetable.sessionExpired)) {
         handleSessionExpired();
         return;
       }
@@ -253,6 +263,16 @@ export default function AttendanceDashboard() {
 
       await dataCache.setAttendance(data);
       await dataCache.setAttendanceHistory(deduplicatedRecords);
+
+      if (resTimetable && resTimetable.ok) {
+        try {
+          const ttData = parseTimetable(resTimetable.html);
+          setTimetable(ttData);
+          await dataCache.setTimetable(ttData);
+        } catch (ttErr) {
+          console.warn('Failed to parse timetable HTML:', ttErr);
+        }
+      }
     } catch (err: any) {
       if (!hasCache) {
         setErrorMsg(err.message || 'An error occurred while loading attendance.');
@@ -428,7 +448,17 @@ export default function AttendanceDashboard() {
 
           {/* Subjects list */}
           <View style={styles.listSection}>
-            <Text style={[styles.sectionTitle, { color: colors.text }]}>Your Courses</Text>
+            <View style={styles.sectionHeaderRow}>
+              <Text style={[styles.sectionTitle, { color: colors.text }]}>Your Courses</Text>
+              <TouchableOpacity
+                style={[styles.timetableButton, { backgroundColor: colors.surfaceContainer, borderColor: colors.outlineVariant }]}
+                onPress={() => setTimetableModalVisible(true)}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="calendar-outline" size={14} color={colors.primary} style={{ marginRight: 4 }} />
+                <Text style={[styles.timetableButtonText, { color: colors.primary }]}>Timetable</Text>
+              </TouchableOpacity>
+            </View>
             {subjectsWithAlerts.length === 0 ? (
               <View style={[styles.card, { backgroundColor: colors.surfaceLowest, borderColor: colors.outlineVariant, alignItems: 'center', paddingVertical: Spacing.six }]}>
                 <Text style={[styles.infoText, { color: colors.textSecondary }]}>No subjects or attendance data found.</Text>
@@ -462,6 +492,13 @@ export default function AttendanceDashboard() {
         colors={colors}
         targetPercentage={targetPercentage}
         attendanceRecords={attendanceRecords}
+      />
+
+      <TimetableModal
+        visible={timetableModalVisible}
+        onClose={() => setTimetableModalVisible(false)}
+        colors={colors}
+        timetableData={timetable}
       />
     </SafeAreaView>
   );
@@ -546,11 +583,28 @@ const styles = StyleSheet.create({
   listSection: {
     gap: Spacing.three,
   },
+  sectionHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: Spacing.half,
+  },
+  timetableButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: Spacing.two,
+    paddingVertical: Spacing.half + 2,
+    borderRadius: Roundness.full,
+    borderWidth: 1,
+  },
+  timetableButtonText: {
+    fontFamily: Fonts.bodyBold,
+    fontSize: 12,
+  },
   sectionTitle: {
     fontFamily: Fonts.bodyBold,
     fontSize: 16,
     lineHeight: 22,
-    marginBottom: Spacing.half,
   },
   card: {
     padding: Spacing.three,

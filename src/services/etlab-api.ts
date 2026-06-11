@@ -509,6 +509,12 @@ export function fetchSurveys() {
   return fetchPage(`${BASE_URL}/survey/user/viewall`);
 }
 
+/** Fetch the timetable page. */
+export function fetchTimetable() {
+  return fetchPage(`${BASE_URL}/student/timetable`);
+}
+
+
 /** Invalidate the session on the ETLAB server with a timeout fallback. */
 export async function logoutFromEtlab(): Promise<void> {
   try {

@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
+import { TimetableData } from './etlab-parser';
 
 export const dataCache = {
   attendance: null as any[] | null,
@@ -7,6 +8,7 @@ export const dataCache = {
   results: null as any[] | null,
   assignments: null as any[] | null,
   surveys: null as any[] | null,
+  timetable: null as TimetableData | null,
 
   lastUpdated: {
     attendance: 0,
@@ -14,10 +16,10 @@ export const dataCache = {
     results: 0,
     assignments: 0,
     surveys: 0,
+    timetable: 0,
   },
 
-  /** Check if the cache is stale (older than TTL) */
-  isStale(key: 'attendance' | 'attendanceHistory' | 'results' | 'assignments' | 'surveys', ttlMs = 10 * 60 * 1000): boolean {
+  isStale(key: 'attendance' | 'attendanceHistory' | 'results' | 'assignments' | 'surveys' | 'timetable', ttlMs = 10 * 60 * 1000): boolean {
     const lastTime = this.lastUpdated[key];
     if (!lastTime) return true;
     return Date.now() - lastTime > ttlMs;
@@ -51,6 +53,11 @@ export const dataCache = {
       if (legacySurv) {
         console.log('[CACHE CLEANUP] Deleting legacy SecureStore cache_surveys');
         await SecureStore.deleteItemAsync('cache_surveys');
+      }
+      const legacyTimetable = await SecureStore.getItemAsync('cache_timetable');
+      if (legacyTimetable) {
+        console.log('[CACHE CLEANUP] Deleting legacy SecureStore cache_timetable');
+        await SecureStore.deleteItemAsync('cache_timetable');
       }
     } catch (err) {
       console.warn('Failed to clear legacy SecureStore caches:', err);
@@ -91,6 +98,13 @@ export const dataCache = {
         const parsed = parseStoredCache(surv);
         this.surveys = parsed.data;
         this.lastUpdated.surveys = parsed.timestamp;
+      }
+
+      const tt = await AsyncStorage.getItem('cache_timetable');
+      if (tt) {
+        const parsed = parseStoredCache(tt);
+        this.timetable = parsed.data as any;
+        this.lastUpdated.timetable = parsed.timestamp;
       }
     } catch (e) {
       console.warn('Failed to load cache from AsyncStorage:', e);
@@ -152,6 +166,17 @@ export const dataCache = {
     }
   },
 
+  async setTimetable(data: TimetableData) {
+    this.timetable = data;
+    this.lastUpdated.timetable = Date.now();
+    try {
+      const valStr = JSON.stringify({ data, timestamp: this.lastUpdated.timetable });
+      await AsyncStorage.setItem('cache_timetable', valStr);
+    } catch (err) {
+      console.warn('Failed to write timetable cache to AsyncStorage:', err);
+    }
+  },
+
   /** Clear cache upon logging out */
   async clear() {
     this.attendance = null;
@@ -159,12 +184,14 @@ export const dataCache = {
     this.results = null;
     this.assignments = null;
     this.surveys = null;
+    this.timetable = null;
     this.lastUpdated = {
       attendance: 0,
       attendanceHistory: 0,
       results: 0,
       assignments: 0,
       surveys: 0,
+      timetable: 0,
     };
     try {
       await AsyncStorage.removeItem('cache_attendance');
@@ -172,6 +199,7 @@ export const dataCache = {
       await AsyncStorage.removeItem('cache_results');
       await AsyncStorage.removeItem('cache_assignments');
       await AsyncStorage.removeItem('cache_surveys');
+      await AsyncStorage.removeItem('cache_timetable');
     } catch (err) {
       console.warn('Failed to clear AsyncStorage caches:', err);
     }

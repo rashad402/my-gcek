@@ -969,3 +969,144 @@ export function isLoginPage(html: string): boolean {
     html.includes('id="loginForm"')
   );
 }
+
+// ─── Timetable (weekly grid) ───────────────────────────────────────────────
+
+export interface TimetableCell {
+  subject: string;
+  type: string; // e.g. 'Theory', 'Practical', 'Elective', 'Tutorial', 'Free Period', 'Drawing', etc.
+  teacher?: string;
+  classType: 'TR' | 'PR' | 'EL' | 'TL' | 'FP' | 'DR' | 'MIN' | '';
+}
+
+export interface TimetableDay {
+  day: string; // Monday, Tuesday, etc.
+  periods: TimetableCell[];
+}
+
+export interface PeriodHeader {
+  index: number;
+  label: string;
+  timeSlot?: string;
+}
+
+export interface TimetableData {
+  periods: PeriodHeader[];
+  days: TimetableDay[];
+}
+
+/**
+ * Parse the ETLAB weekly timetable page HTML using Cheerio.
+ * The page is at /student/timetable
+ */
+export function parseTimetable(html: string): TimetableData {
+  const $ = cheerio.load(html);
+  const data: TimetableData = {
+    periods: [],
+    days: [],
+  };
+
+  // 1. Parse header periods and times
+  $('#timetable table thead tr th').each((idx, el) => {
+    if (idx === 0) return; // Skip "Day" header
+    const rawText = $(el).text().trim();
+    
+    // Clean up text, split "Period X" and time slot "[ 9AM--10AM]"
+    const cleanText = rawText.replace(/\s+/g, ' ');
+    const timeMatch = cleanText.match(/(Period\s+\d+)\s*(?:\[\s*([^\]]+)\s*\])?/i);
+    
+    if (timeMatch) {
+      data.periods.push({
+        index: idx,
+        label: timeMatch[1].trim(),
+        timeSlot: timeMatch[2] ? timeMatch[2].replace(/\s+/g, '').replace('--', ' - ').replace('-', ' - ') : undefined,
+      });
+    } else {
+      data.periods.push({
+        index: idx,
+        label: `Period ${idx}`,
+      });
+    }
+  });
+
+  // 2. Parse daily rows
+  $('#timetable table tbody tr').each((_, trEl) => {
+    const $row = $(trEl);
+    const dayName = $row.find('td').first().text().trim();
+    if (!dayName) return;
+
+    const periods: TimetableCell[] = [];
+
+    $row.find('td').each((tdIdx, tdEl) => {
+      if (tdIdx === 0) return; // Skip first column (Day name)
+      const $td = $(tdEl);
+      const className = ($td.attr('class') || '').toUpperCase().trim();
+      
+      const parts: string[] = [];
+      $td.contents().each((_, node) => {
+        if (node.type === 'text') {
+          const text = $(node).text().trim();
+          if (text) parts.push(text);
+        } else if (node.type === 'tag' && node.name === 'br') {
+          // br tag, just keep separating
+        } else {
+          const text = $(node).text().trim();
+          if (text) parts.push(text);
+        }
+      });
+
+      let subject = '';
+      let type = '';
+      let teacher = '';
+
+      if (parts.length > 0) {
+        subject = parts[0];
+        if (parts.length > 1) {
+          if (parts[1].startsWith('[') && parts[1].endsWith(']')) {
+            type = parts[1].replace(/[\[\]]/g, '').trim();
+            if (parts.length > 2) {
+              teacher = parts.slice(2).join(' ');
+            }
+          } else {
+            teacher = parts.slice(1).join(' ');
+          }
+        }
+      }
+
+      // Determine class type code
+      let classType: TimetableCell['classType'] = '';
+      if (className.includes('TR')) classType = 'TR';
+      else if (className.includes('PR')) classType = 'PR';
+      else if (className.includes('EL')) classType = 'EL';
+      else if (className.includes('TL')) classType = 'TL';
+      else if (className.includes('FP')) classType = 'FP';
+      else if (className.includes('DR')) classType = 'DR';
+      else if (className.includes('MIN')) classType = 'MIN';
+
+      // Fallback details if subject is empty
+      if (!subject) {
+        if (classType === 'FP') {
+          subject = 'Free Period';
+        } else if (classType === 'MIN') {
+          subject = 'Free Period / Mini Project';
+        } else {
+          subject = 'Free Period';
+        }
+      }
+
+      periods.push({
+        subject,
+        type: type || (classType === 'TR' ? 'Theory' : classType === 'PR' ? 'Practical' : classType === 'EL' ? 'Elective' : classType === 'TL' ? 'Tutorial' : ''),
+        teacher: teacher || undefined,
+        classType,
+      });
+    });
+
+    data.days.push({
+      day: dayName,
+      periods,
+    });
+  });
+
+  return data;
+}
