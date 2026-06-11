@@ -19,6 +19,7 @@ import { fetchAttendance, fetchAttendanceHistory } from '@/services/etlab-api';
 import { parseAttendance, parseAttendanceHistory, SubjectAttendance } from '@/services/etlab-parser';
 import { dataCache } from '@/services/data-cache';
 import * as SecureStore from 'expo-secure-store';
+import { getSubjectName } from '@/services/subject-helper';
 import AttendanceRing from './AttendanceRing';
 import AttendanceHistoryModal from './AttendanceHistoryModal';
 import { AttendanceRecord } from './AttendanceCalendar';
@@ -36,36 +37,6 @@ interface SubjectCardProps {
   attendanceRecords: AttendanceRecord[];
 }
 
-function getSubjectName(subject: string): string {
-  const match = subject.match(/[A-Z]{3}\d{3}/i);
-  const cleanCode = match ? match[0].toUpperCase() : subject.trim().toUpperCase();
-
-  // 1. Try to find in dynamic results cache
-  if (dataCache.results) {
-    const found = dataCache.results.find(r => {
-      const rMatch = r.subject.match(/[A-Z]{3}\d{3}/i);
-      const rCode = rMatch ? rMatch[0].toUpperCase() : r.subject.trim().toUpperCase();
-      return rCode === cleanCode;
-    });
-    if (found && found.subjectName) {
-      return found.subjectName;
-    }
-  }
-
-  // 2. Fallback to static mapping for common GCEK courses
-  const staticMap: Record<string, string> = {
-    'CST302': 'Compiler Design',
-    'HUT300': 'Industrial Economics & Foreign Trade',
-    'CST304': 'Computer Graphics & Image Processing',
-    'CST306': 'Algorithm Analysis & Design',
-    'CST308': 'Comprehensive Course Work',
-    'CSL332': 'Networking Lab',
-    'CSD334': 'Miniproject',
-    'CST362': 'Programming in Python',
-  };
-
-  return staticMap[cleanCode] || subject;
-}
 
 function toTitleCase(str: string) {
   return str.replace(
