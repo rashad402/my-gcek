@@ -1,16 +1,6 @@
 import { dataCache } from './data-cache';
 
 const staticMap: Record<string, string> = {
-  // Common GCEK upper semester subjects
-  'CST302': 'Compiler Design',
-  'HUT300': 'Industrial Economics & Foreign Trade',
-  'CST304': 'Computer Graphics & Image Processing',
-  'CST306': 'Algorithm Analysis & Design',
-  'CST308': 'Comprehensive Course Work',
-  'CSL332': 'Networking Lab',
-  'CSD334': 'Miniproject',
-  'CST362': 'Programming in Python',
-
   // First-year subjects (Semester 1)
   'MAT101': 'Linear Algebra And Calculus',
   'PHT100': 'Engineering Physics A',
@@ -49,6 +39,47 @@ const staticMap: Record<string, string> = {
   'MCN202': 'Constitution Of India',
   'CSL202': 'Digital Lab',
   'CSL204': 'Operating Systems Lab',
+
+  // Third-year subjects (Semester 5)
+  'CST301': 'Formal Languages And Automata Theory',
+  'CST303': 'Computer Networks',
+  'CST305': 'System Software',
+  'CST307': 'Microprocessors And Microcontrollers',
+  'CST309': 'Management Of Software Systems',
+  'MCN301': 'Disaster Management',
+  'CSL331': 'System Software And Microprocessors Lab',
+  'CSL333': 'Database Management Systems Lab',
+
+  // Third-year subjects (Semester 6)
+  'CST302': 'Compiler Design',
+  'CST304': 'Computer Graphics And Image Processing',
+  'CST306': 'Algorithm Analysis And Design',
+  'HUT300': 'Industrial Economics And Foreign Trade',
+  'CST308': 'Comprehensive Course Work',
+  'CSL332': 'Networking Lab',
+  'CSD334': 'Miniproject',
+
+  // Fourth-year Electives (Semester 7/8)
+  'CST413': 'Machine Learning',
+  'CST423': 'Cloud Computing',
+  'CST433': 'Security In Computing',
+  'CST443': 'Model Based Software Development',
+  'CST453': 'Advanced Topics In Ia32 Architecture',
+  'CST463': 'Web Programming',
+  'CST473': 'Natural Language Processing',
+
+  'CST415': 'Introduction To Mobile Computing',
+  'CST425': 'Introduction To Deep Learning',
+  'CST435': 'Computer Graphics',
+  'CST445': 'Python For Engineers',
+  'CST455': 'Object Oriented Concepts',
+  
+  // Fourth-year Core (Semester 7)
+  'CST401': 'Artificial Intelligence',
+  'MCN401': 'Industrial Safety Engineering',
+  'CSL411': 'Compiler Lab',
+  'CSQ413': 'Seminar',
+  'CSD415': 'Project Phase I',
 };
 
 /**
