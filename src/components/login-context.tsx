@@ -57,32 +57,41 @@ export function LoginProvider({ children }: { children: ReactNode }) {
         const savedStudentId = await SecureStore.getItemAsync(KEY_STUDENT_ID);
 
         if (savedLoggedIn === 'true' && savedUsername) {
-          // Validate the saved session is still alive
-          const status = await validateSession();
-          if (status === 'valid' || status === 'unknown') {
-            // Only load cache after session is verified valid or unknown (offline mode)
-            await dataCache.loadFromStorage();
-            setIsLoggedIn(true);
-            setUsername(savedUsername);
-            setStudentId(savedStudentId || '');
-          } else {
-            // Session expired — clear persisted data
-            await dataCache.clear();
-            await logoutFromEtlab();
-            await clearPersistedSession();
-            Alert.alert(
-              'Session Expired',
-              'Your saved session has expired. Please log in again.',
-            );
-          }
+          // 1. Immediately restore UI from cache optimistically
+          await dataCache.loadFromStorage();
+          setIsLoggedIn(true);
+          setUsername(savedUsername);
+          setStudentId(savedStudentId || '');
+          setIsRestoringSession(false);
+
+          // 2. Validate in the background, log out only if explicitly expired
+          validateSession().then(async (status) => {
+            if (status === 'expired') {
+              console.log('[Auth] Background check determined session is expired. Logging out.');
+              setIsLoggedIn(false);
+              setUsername('');
+              setStudentId('');
+              await dataCache.clear();
+              await logoutFromEtlab();
+              await clearPersistedSession();
+              Alert.alert(
+                'Session Expired',
+                'Your saved session has expired. Please log in again.',
+              );
+            } else {
+              console.log('[Auth] Background session check result:', status);
+            }
+          }).catch((err) => {
+            console.warn('[Auth] Background session check failed (offline?):', err);
+          });
         } else {
           // No active session — clear cache and session flags to be safe
           await dataCache.clear();
           await clearPersistedSession();
+          setIsRestoringSession(false);
         }
       } catch {
         // SecureStore unavailable — treat as logged-out
-      } finally {
         setIsRestoringSession(false);
       }
     })();

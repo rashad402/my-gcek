@@ -58,6 +58,9 @@ export default function AttendanceHistoryModal({
   const [simAtt, setSimAtt] = useState(0);
   const [simMiss, setSimMiss] = useState(0);
 
+  // Bottom Sheet swipe down-to-dismiss gesture setup
+  const offsetY = useSharedValue(0);
+
   // Sync state and colors using centralized status helper
   const variant = getStatusTier(percentage, targetPercentage);
   const progressColor = getStatusColor(percentage, targetPercentage, colors);
@@ -125,9 +128,6 @@ export default function AttendanceHistoryModal({
       return null;
     }
   }, [percentage, targetPercentage, attended, total]);
-
-  // Bottom Sheet swipe down-to-dismiss gesture setup
-  const offsetY = useSharedValue(0);
 
   const animatedSheetStyle = useAnimatedStyle(() => {
     return {
