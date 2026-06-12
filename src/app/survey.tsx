@@ -137,7 +137,7 @@ export default function SurveyScreen() {
 
   return (
     <ProtectedScreen>
-      <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+      <SafeAreaView edges={['top', 'left', 'right']} style={[styles.container, { backgroundColor: colors.background }]}>
         {/* Header */}
         <View style={[styles.topBar, { borderBottomColor: colors.surfaceContainer }]}>
           <View>

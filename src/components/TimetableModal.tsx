@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   StyleSheet,
   View,
@@ -9,12 +9,22 @@ import {
   ScrollView,
   Dimensions,
   ActivityIndicator,
+  PanResponder,
+  useColorScheme,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Fonts, Spacing, Roundness } from '@/constants/theme';
 import { TimetableData } from '@/services/etlab-parser';
 import { getSubjectName } from '@/services/subject-helper';
-import Animated, { useSharedValue, useAnimatedStyle, withSpring } from 'react-native-reanimated';
+import Animated, { 
+  useSharedValue, 
+  useAnimatedStyle, 
+  withSpring, 
+  runOnJS,
+  withRepeat,
+  withTiming,
+} from 'react-native-reanimated';
+import * as Haptics from 'expo-haptics';
 
 interface Props {
   visible: boolean;
@@ -54,12 +64,16 @@ export default function TimetableModal({
 
   const tabWidth = containerWidth > 0 ? containerWidth / 5 : 0;
   const translateX = useSharedValue(0);
+  
+  // Shared value for sheet vertical translation drag-to-dismiss gesture
+  const offsetY = useSharedValue(0);
 
   useEffect(() => {
     if (visible) {
       setSelectedDayIndex(getCurrentDayIndex());
+      offsetY.value = 0;
     }
-  }, [visible]);
+  }, [visible, offsetY]);
 
   useEffect(() => {
     if (containerWidth > 0) {
@@ -73,7 +87,67 @@ export default function TimetableModal({
   const animatedIndicatorStyle = useAnimatedStyle(() => {
     return {
       transform: [{ translateX: translateX.value }],
-      width: tabWidth - 6, // small margin inside the tab frame
+      width: tabWidth - 6,
+    };
+  });
+
+  const animatedSheetStyle = useAnimatedStyle(() => {
+    return {
+      transform: [{ translateY: offsetY.value }],
+    };
+  });
+
+  const animatedBackdropStyle = useAnimatedStyle(() => {
+    const opacity = 1 - Math.min(1, offsetY.value / (SCREEN_HEIGHT * 0.4));
+    return {
+      opacity: opacity,
+    };
+  });
+
+  // Setup pan responder for gesture-dismissing the sheet downwards
+  const panResponder = React.useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => false,
+      onMoveShouldSetPanResponder: (_, gestureState) => {
+        // Intercept touch movements only when swiping downwards
+        return gestureState.dy > 5 && Math.abs(gestureState.dx) < 10;
+      },
+      onPanResponderMove: (_, gestureState) => {
+        if (gestureState.dy > 0) {
+          offsetY.value = gestureState.dy;
+        }
+      },
+      onPanResponderRelease: (_, gestureState) => {
+        if (gestureState.dy > 120 || gestureState.vy > 0.5) {
+          offsetY.value = withSpring(SCREEN_HEIGHT, { damping: 20 }, (finished) => {
+            if (finished) {
+              runOnJS(onClose)();
+            }
+          });
+        } else {
+          offsetY.value = withSpring(0, { damping: 15 });
+        }
+      },
+    })
+  ).current;
+
+  // Pulse animation for the "NOW" live dot
+  const liveDotOpacity = useSharedValue(0.3);
+  useEffect(() => {
+    if (visible) {
+      liveDotOpacity.value = withRepeat(
+        withTiming(1, { duration: 650 }),
+        -1,
+        true
+      );
+    } else {
+      liveDotOpacity.value = 0.3;
+    }
+  }, [visible, liveDotOpacity]);
+
+  const animatedLiveDotStyle = useAnimatedStyle(() => {
+    return {
+      opacity: liveDotOpacity.value,
     };
   });
 
@@ -113,7 +187,72 @@ export default function TimetableModal({
     }
   };
 
-  const isDark = colors.background === '#1b1c1d';
+  const colorScheme = useColorScheme();
+  const isDark = colorScheme === 'dark';
+
+  // Check if today matches selected day index (Mon-Fri)
+  const isToday = selectedDayIndex === getCurrentDayIndex() && new Date().getDay() >= 1 && new Date().getDay() <= 5;
+
+  const isCurrentPeriod = useCallback((timeSlot?: string) => {
+    if (!isToday || !timeSlot) return false;
+    
+    // Parse times like "9:00 AM - 9:50 AM" or "09:00 - 09:50" or "9:00 - 9:50"
+    const cleanSlot = timeSlot.replace(/\s+/g, '');
+    const match = cleanSlot.match(/^(\d{1,2}):(\d{2})([ap]m)?\s*[-–—]\s*(\d{1,2}):(\d{2})([ap]m)?$/i);
+    if (!match) return false;
+    
+    let startHour = parseInt(match[1], 10);
+    const startMin = parseInt(match[2], 10);
+    const startAmPm = match[3];
+    if (startAmPm && startAmPm.toLowerCase() === 'pm' && startHour < 12) startHour += 12;
+    if (startAmPm && startAmPm.toLowerCase() === 'am' && startHour === 12) startHour = 0;
+    
+    let endHour = parseInt(match[4], 10);
+    const endMin = parseInt(match[5], 10);
+    const endAmPm = match[6];
+    if (endAmPm && endAmPm.toLowerCase() === 'pm' && endHour < 12) endHour += 12;
+    if (endAmPm && endAmPm.toLowerCase() === 'am' && endHour === 12) endHour = 0;
+    
+    const startTotal = startHour * 60 + startMin;
+    const endTotal = endHour * 60 + endMin;
+    
+    const now = new Date();
+    const nowTotal = now.getHours() * 60 + now.getMinutes();
+    return nowTotal >= startTotal && nowTotal <= endTotal;
+  }, [isToday]);
+
+  const isWeekend = new Date().getDay() === 0 || new Date().getDay() === 6;
+
+  // Auto-scroll anchor logic
+  const scrollViewRef = React.useRef<ScrollView>(null);
+  const rowOffsets = React.useRef<{ [key: number]: number }>({}).current;
+
+  useEffect(() => {
+    if (visible && timetableData) {
+      const today = getCurrentDayIndex();
+      if (selectedDayIndex === today) {
+        const activeDay = timetableData.days.find(d => {
+          const dName = d.day.toLowerCase();
+          const targetName = DAYS_OF_WEEK[today].toLowerCase();
+          return dName === targetName || dName.substring(0, 3) === targetName.substring(0, 3);
+        });
+        if (activeDay) {
+          const currentIdx = activeDay.periods.findIndex((_, idx) => {
+            const header = timetableData.periods[idx];
+            return isCurrentPeriod(header?.timeSlot);
+          });
+          if (currentIdx !== -1) {
+            setTimeout(() => {
+              const y = rowOffsets[currentIdx];
+              if (y !== undefined && scrollViewRef.current) {
+                scrollViewRef.current.scrollTo({ y: Math.max(0, y - 20), animated: true });
+              }
+            }, 300);
+          }
+        }
+      }
+    }
+  }, [visible, selectedDayIndex, timetableData, isCurrentPeriod, rowOffsets]);
 
   return (
     <Modal
@@ -123,23 +262,39 @@ export default function TimetableModal({
       onRequestClose={onClose}
     >
       <TouchableWithoutFeedback onPress={onClose}>
-        <View style={styles.backdrop} />
+        <Animated.View style={[styles.backdrop, animatedBackdropStyle]} />
       </TouchableWithoutFeedback>
 
-      <View style={[styles.sheet, { backgroundColor: colors.surfaceLowest }]}>
-        {/* Drag handle */}
-        <View style={styles.handleBar}>
-          <View style={[styles.handle, { backgroundColor: colors.outlineVariant }]} />
-        </View>
+      <Animated.View 
+        style={[
+          styles.sheet, 
+          { backgroundColor: colors.surfaceLowest }, 
+          animatedSheetStyle
+        ]}
+      >
+        <View {...panResponder.panHandlers}>
+          {/* Drag handle */}
+          <View style={styles.handleBar}>
+            <View style={[styles.handle, { backgroundColor: colors.outlineVariant }]} />
+          </View>
 
-        {/* Header */}
-        <View style={styles.header}>
-          <Text style={[styles.sheetTitle, { color: colors.text }]}>
-            📅 Weekly Timetable
-          </Text>
-          <TouchableOpacity onPress={onClose} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
-            <Ionicons name="close" size={24} color={colors.textSecondary} />
-          </TouchableOpacity>
+          {/* Header */}
+          <View style={styles.header}>
+            <View style={styles.headerTitleRow}>
+              <Ionicons name="calendar-outline" size={22} color={colors.text} style={{ marginRight: 8 }} />
+              <Text style={[styles.sheetTitle, { color: colors.text }]}>
+                Weekly Timetable
+              </Text>
+            </View>
+            <TouchableOpacity 
+              accessibilityRole="button"
+              accessibilityLabel="Close timetable modal"
+              onPress={onClose} 
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            >
+              <Ionicons name="close" size={24} color={colors.textSecondary} />
+            </TouchableOpacity>
+          </View>
         </View>
 
         <View style={styles.contentContainer}>
@@ -163,8 +318,14 @@ export default function TimetableModal({
               return (
                 <TouchableOpacity
                   key={day}
+                  accessibilityRole="tab"
+                  accessibilityState={{ selected: isSelected }}
+                  accessibilityLabel={`${day} timetable tab`}
                   style={styles.tabButton}
-                  onPress={() => setSelectedDayIndex(idx)}
+                  onPress={() => {
+                    Haptics.selectionAsync();
+                    setSelectedDayIndex(idx);
+                  }}
                   activeOpacity={0.8}
                 >
                   <Text
@@ -183,6 +344,34 @@ export default function TimetableModal({
             })}
           </View>
 
+          {/* Timetable Badge Legend */}
+          <View style={styles.legendRow}>
+            {[
+              ['TR', 'Theory'],
+              ['PR', 'Lab'],
+              ['TL', 'Tutorial'],
+              ['EL', 'Elective']
+            ].map(([code, label]) => {
+              const b = getBadgeStyles(code, isDark);
+              return (
+                <View key={code} style={styles.legendItem}>
+                  <View style={[styles.legendDot, { backgroundColor: b.text }]} />
+                  <Text style={[styles.legendText, { color: colors.textSecondary }]}>{label}</Text>
+                </View>
+              );
+            })}
+          </View>
+
+          {/* Weekend Banner */}
+          {isWeekend && (
+            <View style={[styles.weekendBanner, { backgroundColor: `${colors.primary}12`, borderColor: `${colors.primary}25` }]}>
+              <Ionicons name="sparkles-outline" size={14} color={colors.primary} />
+              <Text style={[styles.weekendText, { color: colors.primary }]}>
+                {"It's the weekend! Showing Monday's timetable."}
+              </Text>
+            </View>
+          )}
+
           {/* Timeline / Cards */}
           {!timetableData ? (
             <View style={styles.loadingContainer}>
@@ -200,6 +389,7 @@ export default function TimetableModal({
             </View>
           ) : (
             <ScrollView
+              ref={scrollViewRef}
               style={styles.scrollArea}
               contentContainerStyle={styles.scrollContent}
               showsVerticalScrollIndicator={false}
@@ -215,9 +405,17 @@ export default function TimetableModal({
                 const displayCode = isFree ? null : cell.subject;
                 const hasTeacher = cell.teacher && cell.teacher.trim().length > 0;
                 const badge = getBadgeStyles(cell.classType, isDark);
+                
+                const isCurrent = isCurrentPeriod(header.timeSlot);
 
                 return (
-                  <View key={idx} style={styles.timelineRow}>
+                  <View 
+                    key={idx} 
+                    style={styles.timelineRow}
+                    onLayout={(e) => {
+                      rowOffsets[idx] = e.nativeEvent.layout.y;
+                    }}
+                  >
                     {/* Left: Time and Period */}
                     <View style={styles.timeColumn}>
                       <Text style={[styles.periodLabel, { color: colors.text }]}>
@@ -246,9 +444,11 @@ export default function TimetableModal({
                       styles.cardContainer,
                       {
                         backgroundColor: colors.surfaceLowest,
-                        borderColor: colors.outlineVariant,
+                        borderColor: isCurrent ? colors.primary : colors.outlineVariant,
+                        borderWidth: isCurrent ? 1.5 : 1,
                         opacity: isFree ? 0.65 : 1,
-                      }
+                      },
+                      isCurrent && { backgroundColor: `${colors.primary}08` }
                     ]}>
                       <View style={styles.cardHeaderRow}>
                         <View style={{ flex: 1 }}>
@@ -272,20 +472,30 @@ export default function TimetableModal({
                           ) : null}
                         </View>
 
-                        {/* Tiny badge */}
-                        {!isFree && cell.type ? (
-                          <View style={[styles.badge, { backgroundColor: badge.bg }]}>
-                            <Text style={[styles.badgeText, { color: badge.text }]}>
-                              {cell.type}
-                            </Text>
-                          </View>
-                        ) : null}
+                        <View style={styles.badgesCol}>
+                          {isCurrent && (
+                            <View style={[styles.nowBadge, { backgroundColor: colors.primary }]}>
+                              <Animated.View style={[styles.liveDot, animatedLiveDotStyle]} />
+                              <Text style={styles.nowText}>NOW</Text>
+                            </View>
+                          )}
+                          {!isFree && cell.type ? (
+                            <View style={[styles.badge, { backgroundColor: badge.bg }]}>
+                              <Text style={[styles.badgeText, { color: badge.text }]}>
+                                {cell.type}
+                              </Text>
+                            </View>
+                          ) : null}
+                        </View>
                       </View>
 
                       {hasTeacher && !isFree ? (
-                        <Text style={[styles.teacherText, { color: colors.textSecondary }]}>
-                          👤 {toTitleCase(cell.teacher!)}
-                        </Text>
+                        <View style={styles.teacherRow}>
+                          <Ionicons name="person-outline" size={12} color={colors.textSecondary} style={{ marginRight: 4 }} />
+                          <Text style={[styles.teacherText, { color: colors.textSecondary }]}>
+                            {toTitleCase(cell.teacher!)}
+                          </Text>
+                        </View>
                       ) : null}
                     </View>
                   </View>
@@ -294,17 +504,21 @@ export default function TimetableModal({
             </ScrollView>
           )}
         </View>
-      </View>
+      </Animated.View>
     </Modal>
   );
 }
 
 const styles = StyleSheet.create({
   backdrop: {
-    flex: 1,
+    ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
   },
   sheet: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
     maxHeight: SCREEN_HEIGHT * 0.82,
     borderTopLeftRadius: Roundness.xl,
     borderTopRightRadius: Roundness.xl,
@@ -331,6 +545,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.four,
     paddingBottom: Spacing.two,
   },
+  headerTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
   sheetTitle: {
     fontFamily: Fonts.bodyBold,
     fontSize: 20,
@@ -347,7 +565,7 @@ const styles = StyleSheet.create({
     padding: 3,
     position: 'relative',
     alignItems: 'center',
-    marginBottom: Spacing.three,
+    marginBottom: Spacing.two,
   },
   tabIndicator: {
     position: 'absolute',
@@ -370,6 +588,44 @@ const styles = StyleSheet.create({
   },
   tabText: {
     fontSize: 13,
+  },
+  legendRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 4,
+    marginBottom: Spacing.two,
+    flexWrap: 'wrap',
+    gap: Spacing.one,
+  },
+  legendItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  legendDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  legendText: {
+    fontFamily: Fonts.bodyMedium,
+    fontSize: 11,
+  },
+  weekendBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: Roundness.md,
+    borderWidth: 1,
+    marginBottom: Spacing.two,
+  },
+  weekendText: {
+    fontFamily: Fonts.bodyMedium,
+    fontSize: 12,
   },
   loadingContainer: {
     paddingVertical: Spacing.seven,
@@ -441,7 +697,6 @@ const styles = StyleSheet.create({
   },
   cardContainer: {
     flex: 1,
-    borderWidth: 1,
     borderRadius: Roundness.md,
     padding: Spacing.two + 2,
     marginBottom: Spacing.two,
@@ -463,6 +718,11 @@ const styles = StyleSheet.create({
     lineHeight: 15,
     marginTop: 2,
   },
+  badgesCol: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.one,
+  },
   badge: {
     paddingHorizontal: 8,
     paddingVertical: 3,
@@ -474,10 +734,35 @@ const styles = StyleSheet.create({
     fontSize: 10,
     lineHeight: 12,
   },
+  nowBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: Roundness.sm,
+    alignSelf: 'flex-start',
+    gap: 4,
+  },
+  liveDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#ffffff',
+  },
+  nowText: {
+    fontFamily: Fonts.bodyBold,
+    fontSize: 10,
+    lineHeight: 12,
+    color: '#ffffff',
+  },
+  teacherRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: Spacing.one,
+  },
   teacherText: {
     fontFamily: Fonts.body,
     fontSize: 12,
     lineHeight: 16,
-    marginTop: Spacing.one,
   },
 });

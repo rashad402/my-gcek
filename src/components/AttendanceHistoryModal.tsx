@@ -1,18 +1,28 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   StyleSheet,
   View,
   Text,
   Modal,
   TouchableOpacity,
+  Pressable,
   TouchableWithoutFeedback,
   ScrollView,
   Dimensions,
+  PanResponder,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { Fonts, Spacing, Roundness } from '@/constants/theme';
+import { Fonts, Spacing, Roundness, ThemeColors } from '@/constants/theme';
 import AttendanceRing from './AttendanceRing';
 import AttendanceCalendar, { AttendanceRecord } from './AttendanceCalendar';
+import { getStatusTier, getStatusColor } from '@/services/attendance-status';
+import * as Haptics from 'expo-haptics';
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withSpring,
+  runOnJS,
+} from 'react-native-reanimated';
 
 interface Props {
   visible: boolean;
@@ -24,7 +34,7 @@ interface Props {
   attended: number;
   total: number;
   alertText: string;
-  colors: any;
+  colors: ThemeColors;
   targetPercentage: number;
   attendanceRecords: AttendanceRecord[];
 }
@@ -48,10 +58,19 @@ export default function AttendanceHistoryModal({
   const [simAtt, setSimAtt] = useState(0);
   const [simMiss, setSimMiss] = useState(0);
 
-  const progressColor = percentage < 75 ? colors.danger : percentage < 80 ? colors.warning : colors.success;
-  const variant = percentage >= 80 ? 'success' : percentage >= 75 ? 'warning' : 'danger';
+  // Sync state and colors using centralized status helper
+  const variant = getStatusTier(percentage, targetPercentage);
+  const progressColor = getStatusColor(percentage, targetPercentage, colors);
 
-  // Reset simulator when modal opens
+  // Reset simulator values when modal opens
+  useEffect(() => {
+    if (visible) {
+      setSimAtt(0);
+      setSimMiss(0);
+      offsetY.value = 0;
+    }
+  }, [visible, offsetY]);
+
   const handleClose = () => {
     setSimAtt(0);
     setSimMiss(0);
@@ -62,7 +81,91 @@ export default function AttendanceHistoryModal({
   const newAtt = attended + simAtt;
   const newTot = total + simAtt + simMiss;
   const newPct = newTot > 0 ? Math.round((newAtt / newTot) * 1000) / 10 : 0;
-  const statusColor = newPct < 75 ? colors.danger : newPct < 80 ? colors.warning : colors.success;
+  const statusColor = getStatusColor(newPct, targetPercentage, colors);
+
+  // Increment / Decrement handlers with haptics
+  const adjustSimAtt = (amount: number) => {
+    Haptics.selectionAsync().catch(() => {});
+    setSimAtt((prev) => Math.max(0, prev + amount));
+  };
+
+  const adjustSimMiss = (amount: number) => {
+    Haptics.selectionAsync().catch(() => {});
+    setSimMiss((prev) => Math.max(0, prev + amount));
+  };
+
+  // Smart suggestion chip logic based on user's targetPercentage
+  const targetSuggestion = useMemo(() => {
+    if (total === 0) return null;
+    if (percentage >= targetPercentage) {
+      // Find how many classes they can miss without falling below target
+      const targetFraction = targetPercentage / 100;
+      const maxMissable = Math.max(0, Math.floor(attended / targetFraction - total));
+      if (maxMissable > 0) {
+        return {
+          type: 'miss',
+          count: maxMissable,
+          label: `Can miss next ${maxMissable} class${maxMissable > 1 ? 'es' : ''} safely`,
+        };
+      }
+      return null;
+    } else {
+      // Find how many classes they must attend consecutively to reach target
+      const reqClasses = Math.max(
+        0,
+        Math.ceil((targetPercentage * total - 100 * attended) / (100 - targetPercentage))
+      );
+      if (reqClasses > 0) {
+        return {
+          type: 'attend',
+          count: reqClasses,
+          label: `Attend next ${reqClasses} class${reqClasses > 1 ? 'es' : ''} to reach ${targetPercentage}%`,
+        };
+      }
+      return null;
+    }
+  }, [percentage, targetPercentage, attended, total]);
+
+  // Bottom Sheet swipe down-to-dismiss gesture setup
+  const offsetY = useSharedValue(0);
+
+  const animatedSheetStyle = useAnimatedStyle(() => {
+    return {
+      transform: [{ translateY: offsetY.value }],
+    };
+  });
+
+  const animatedBackdropStyle = useAnimatedStyle(() => {
+    const opacity = 1 - Math.min(1, offsetY.value / (SCREEN_HEIGHT * 0.4));
+    return {
+      opacity: opacity,
+    };
+  });
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => false,
+      onMoveShouldSetPanResponder: (_, gestureState) => {
+        return gestureState.dy > 5 && Math.abs(gestureState.dx) < 10;
+      },
+      onPanResponderMove: (_, gestureState) => {
+        if (gestureState.dy > 0) {
+          offsetY.value = gestureState.dy;
+        }
+      },
+      onPanResponderRelease: (_, gestureState) => {
+        if (gestureState.dy > 120 || gestureState.vy > 0.5) {
+          offsetY.value = withSpring(SCREEN_HEIGHT, { damping: 20 }, (finished) => {
+            if (finished) {
+              runOnJS(handleClose)();
+            }
+          });
+        } else {
+          offsetY.value = withSpring(0, { damping: 15 });
+        }
+      },
+    })
+  ).current;
 
   return (
     <Modal
@@ -72,13 +175,48 @@ export default function AttendanceHistoryModal({
       onRequestClose={handleClose}
     >
       <TouchableWithoutFeedback onPress={handleClose}>
-        <View style={styles.backdrop} />
+        <Animated.View style={[styles.backdrop, animatedBackdropStyle]} />
       </TouchableWithoutFeedback>
 
-      <View style={[styles.sheet, { backgroundColor: colors.surfaceLowest }]}>
-        {/* Drag handle */}
-        <View style={styles.handleBar}>
-          <View style={[styles.handle, { backgroundColor: colors.outlineVariant }]} />
+      <Animated.View style={[styles.sheet, { backgroundColor: colors.surfaceLowest }, animatedSheetStyle]}>
+        {/* Swipe-to-dismiss Drag Zone */}
+        <View {...panResponder.panHandlers}>
+          {/* Drag handle */}
+          <View style={styles.handleBar}>
+            <View style={[styles.handle, { backgroundColor: colors.outlineVariant }]} />
+          </View>
+
+          {/* Header */}
+          <View style={styles.header}>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.sheetTitle, { color: colors.text }]} numberOfLines={2}>
+                {displayName}
+              </Text>
+              {professor ? (
+                <View style={styles.profRow}>
+                  <Ionicons name="person-outline" size={14} color={colors.textSecondary} style={{ marginRight: 4 }} />
+                  <Text style={[styles.sheetSubtitle, { color: colors.textSecondary }]}>
+                    {professor}
+                  </Text>
+                </View>
+              ) : (
+                <View style={styles.profRow}>
+                  <Ionicons name="book-outline" size={14} color={colors.textSecondary} style={{ marginRight: 4 }} />
+                  <Text style={[styles.sheetSubtitle, { color: colors.textSecondary }]}>
+                    {subject}
+                  </Text>
+                </View>
+              )}
+            </View>
+            <TouchableOpacity
+              accessibilityRole="button"
+              accessibilityLabel="Close history modal"
+              onPress={handleClose}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            >
+              <Ionicons name="close" size={24} color={colors.textSecondary} />
+            </TouchableOpacity>
+          </View>
         </View>
 
         <ScrollView
@@ -87,30 +225,9 @@ export default function AttendanceHistoryModal({
           showsVerticalScrollIndicator={false}
           bounces={false}
         >
-          {/* Header */}
-          <View style={styles.header}>
-            <View style={{ flex: 1 }}>
-              <Text style={[styles.sheetTitle, { color: colors.text }]} numberOfLines={2}>
-                {displayName}
-              </Text>
-              {professor ? (
-                <Text style={[styles.sheetSubtitle, { color: colors.textSecondary }]}>
-                  👤 {professor}
-                </Text>
-              ) : (
-                <Text style={[styles.sheetSubtitle, { color: colors.textSecondary }]}>
-                  {subject}
-                </Text>
-              )}
-            </View>
-            <TouchableOpacity onPress={handleClose} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
-              <Ionicons name="close" size={24} color={colors.textSecondary} />
-            </TouchableOpacity>
-          </View>
-
           {/* Stats row */}
           <View style={[styles.statsRow, { backgroundColor: colors.surfaceLow, borderColor: colors.outlineVariant }]}>
-            <AttendanceRing percentage={percentage} variant={variant} size={64} strokeWidth={5.5} />
+            <AttendanceRing percentage={percentage} variant={variant} size={64} strokeWidth={5.5} colors={colors} />
             <View style={styles.statsInfo}>
               <Text style={[styles.statsPercentage, { color: progressColor }]}>
                 {percentage}%
@@ -129,11 +246,14 @@ export default function AttendanceHistoryModal({
             </View>
           </View>
 
-          {/* Calendar */}
+          {/* Calendar Section */}
           <View style={[styles.calendarSection, { backgroundColor: colors.surfaceLow, borderColor: colors.outlineVariant }]}>
-            <Text style={[styles.sectionTitle, { color: colors.text }]}>
-              📅 Attendance History
-            </Text>
+            <View style={styles.sectionTitleRow}>
+              <Ionicons name="calendar-outline" size={18} color={colors.primary} style={{ marginRight: 6 }} />
+              <Text style={[styles.sectionTitle, { color: colors.text }]}>
+                Attendance History
+              </Text>
+            </View>
             <AttendanceCalendar
               records={attendanceRecords}
               subjectCode={subject}
@@ -141,48 +261,106 @@ export default function AttendanceHistoryModal({
             />
           </View>
 
-          {/* Simulator */}
+          {/* Simulator Section */}
           {subject !== 'ALL' && (
             <View style={[styles.simulatorSection, { backgroundColor: colors.surfaceLow, borderColor: colors.outlineVariant }]}>
-              <Text style={[styles.sectionTitle, { color: colors.text }]}>🔮 Attendance Simulator</Text>
+              <View style={styles.sectionTitleRow}>
+                <Ionicons name="flask-outline" size={18} color={colors.primary} style={{ marginRight: 6 }} />
+                <Text style={[styles.sectionTitle, { color: colors.text }]}>
+                  Attendance Simulator
+                </Text>
+              </View>
 
               <View style={styles.simulatorRow}>
                 <Text style={[styles.simulatorLabel, { color: colors.textSecondary }]}>Attend consecutive classes</Text>
                 <View style={styles.counterGroup}>
-                  <TouchableOpacity
-                    style={[styles.counterBtn, { backgroundColor: colors.surfaceContainer }]}
-                    onPress={() => setSimAtt(Math.max(0, simAtt - 1))}
+                  <Pressable
+                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                    accessibilityRole="button"
+                    accessibilityLabel="Decrease simulated attended classes"
+                    style={({ pressed }) => [
+                      styles.counterBtn,
+                      { backgroundColor: colors.surfaceContainer },
+                      pressed && { transform: [{ scale: 0.9 }], opacity: 0.8 }
+                    ]}
+                    onPress={() => adjustSimAtt(-1)}
                   >
                     <Text style={[styles.counterBtnText, { color: colors.text }]}>-</Text>
-                  </TouchableOpacity>
+                  </Pressable>
                   <Text style={[styles.counterValue, { color: colors.text }]}>{simAtt}</Text>
-                  <TouchableOpacity
-                    style={[styles.counterBtn, { backgroundColor: colors.surfaceContainer }]}
-                    onPress={() => setSimAtt(simAtt + 1)}
+                  <Pressable
+                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                    accessibilityRole="button"
+                    accessibilityLabel="Increase simulated attended classes"
+                    style={({ pressed }) => [
+                      styles.counterBtn,
+                      { backgroundColor: colors.surfaceContainer },
+                      pressed && { transform: [{ scale: 0.9 }], opacity: 0.8 }
+                    ]}
+                    onPress={() => adjustSimAtt(1)}
                   >
                     <Text style={[styles.counterBtnText, { color: colors.text }]}>+</Text>
-                  </TouchableOpacity>
+                  </Pressable>
                 </View>
               </View>
 
               <View style={styles.simulatorRow}>
                 <Text style={[styles.simulatorLabel, { color: colors.textSecondary }]}>Miss consecutive classes</Text>
                 <View style={styles.counterGroup}>
-                  <TouchableOpacity
-                    style={[styles.counterBtn, { backgroundColor: colors.surfaceContainer }]}
-                    onPress={() => setSimMiss(Math.max(0, simMiss - 1))}
+                  <Pressable
+                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                    accessibilityRole="button"
+                    accessibilityLabel="Decrease simulated missed classes"
+                    style={({ pressed }) => [
+                      styles.counterBtn,
+                      { backgroundColor: colors.surfaceContainer },
+                      pressed && { transform: [{ scale: 0.9 }], opacity: 0.8 }
+                    ]}
+                    onPress={() => adjustSimMiss(-1)}
                   >
                     <Text style={[styles.counterBtnText, { color: colors.text }]}>-</Text>
-                  </TouchableOpacity>
+                  </Pressable>
                   <Text style={[styles.counterValue, { color: colors.text }]}>{simMiss}</Text>
-                  <TouchableOpacity
-                    style={[styles.counterBtn, { backgroundColor: colors.surfaceContainer }]}
-                    onPress={() => setSimMiss(simMiss + 1)}
+                  <Pressable
+                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                    accessibilityRole="button"
+                    accessibilityLabel="Increase simulated missed classes"
+                    style={({ pressed }) => [
+                      styles.counterBtn,
+                      { backgroundColor: colors.surfaceContainer },
+                      pressed && { transform: [{ scale: 0.9 }], opacity: 0.8 }
+                    ]}
+                    onPress={() => adjustSimMiss(1)}
                   >
                     <Text style={[styles.counterBtnText, { color: colors.text }]}>+</Text>
-                  </TouchableOpacity>
+                  </Pressable>
                 </View>
               </View>
+
+              {/* Fast Action Suggestion Chip */}
+              {targetSuggestion && (
+                <TouchableOpacity
+                  accessibilityRole="button"
+                  accessibilityLabel={`Apply suggestion: ${targetSuggestion.label}`}
+                  style={[styles.suggestionChip, { backgroundColor: `${colors.primary}0D`, borderColor: `${colors.primary}25` }]}
+                  onPress={() => {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    if (targetSuggestion.type === 'attend') {
+                      setSimAtt(targetSuggestion.count);
+                      setSimMiss(0);
+                    } else {
+                      setSimAtt(0);
+                      setSimMiss(targetSuggestion.count);
+                    }
+                  }}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons name="sparkles-outline" size={14} color={colors.primary} style={{ marginRight: 6 }} />
+                  <Text style={[styles.suggestionText, { color: colors.primary }]}>
+                    {targetSuggestion.label}
+                  </Text>
+                </TouchableOpacity>
+              )}
 
               {/* Simulator result */}
               <View style={[styles.simResultCard, { backgroundColor: colors.surfaceContainer }]}>
@@ -194,24 +372,28 @@ export default function AttendanceHistoryModal({
                   <Text style={[styles.simResultText, { color: colors.text }]}>
                     {simAtt === 0 && simMiss === 0
                       ? 'Adjust controls above to simulate hypothetical classes.'
-                      : `Simulated: ${newAtt}/${newTot} hrs. You would be ${newPct >= 75 ? 'safe' : 'below target'}!`}
+                      : `Simulated: ${newAtt}/${newTot} hrs. You would be ${newPct >= targetPercentage ? 'safe' : 'below target'}!`}
                   </Text>
                 </View>
               </View>
             </View>
           )}
         </ScrollView>
-      </View>
+      </Animated.View>
     </Modal>
   );
 }
 
 const styles = StyleSheet.create({
   backdrop: {
-    flex: 1,
+    ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
   },
   sheet: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
     maxHeight: SCREEN_HEIGHT * 0.85,
     borderTopLeftRadius: Roundness.xl,
     borderTopRightRadius: Roundness.xl,
@@ -244,6 +426,8 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'flex-start',
     gap: Spacing.two,
+    paddingHorizontal: Spacing.four,
+    paddingBottom: Spacing.one,
   },
   sheetTitle: {
     fontFamily: Fonts.bodyBold,
@@ -254,6 +438,10 @@ const styles = StyleSheet.create({
     fontFamily: Fonts.body,
     fontSize: 13,
     lineHeight: 18,
+  },
+  profRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
     marginTop: 2,
   },
   statsRow: {
@@ -297,6 +485,11 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     gap: Spacing.two,
   },
+  sectionTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: Spacing.half,
+  },
   sectionTitle: {
     fontFamily: Fonts.bodyBold,
     fontSize: 16,
@@ -326,8 +519,8 @@ const styles = StyleSheet.create({
     gap: Spacing.two,
   },
   counterBtn: {
-    width: 28,
-    height: 28,
+    width: 32,
+    height: 32,
     borderRadius: Roundness.sm,
     justifyContent: 'center',
     alignItems: 'center',
@@ -341,8 +534,22 @@ const styles = StyleSheet.create({
     fontFamily: Fonts.bodyBold,
     fontSize: 14,
     letterSpacing: -0.3,
-    minWidth: 20,
+    minWidth: 24,
     textAlign: 'center',
+  },
+  suggestionChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: Roundness.md,
+    borderWidth: 1,
+    marginVertical: Spacing.one,
+  },
+  suggestionText: {
+    fontFamily: Fonts.bodyMedium,
+    fontSize: 12,
   },
   simResultCard: {
     flexDirection: 'row',

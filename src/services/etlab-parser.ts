@@ -4,65 +4,31 @@
  * Pure functions that convert raw ETLAB HTML pages into the TypeScript
  * data structures used by the app's UI screens.
  *
- * Uses Cheerio for attendance history parsing (proper DOM traversal)
- * and regex-based parsing for other sections.
+ * Consolidated on Cheerio for all HTML parsing to prevent ReDoS,
+ * scope tables correctly, and decode HTML entities robustly.
  */
 
 import * as cheerio from 'cheerio/slim';
 
+const MAX_HTML_LENGTH = 1.5 * 1024 * 1024; // 1.5 MB
+const isDev = typeof __DEV__ !== 'undefined' ? __DEV__ : true;
+
 // ─── Shared helpers ─────────────────────────────────────────────────────────
 
-/** Strip all HTML tags from a string. */
-function stripTags(html: string): string {
-  return html.replace(/<[^>]+>/g, '').trim();
-}
-
-/** Decode common HTML entities. */
-function decodeEntities(text: string): string {
-  return text
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&#039;/g, "'")
-    .replace(/&nbsp;/g, ' ');
-}
-
-/** Extract all <th> header contents from an HTML table. */
-function extractTableHeaders(html: string): string[] {
-  const headers: string[] = [];
-  const theadMatch = html.match(/<thead[^>]*>([\s\S]*?)<\/thead>/i);
-  if (!theadMatch) return headers;
-
-  const thRegex = /<th[^>]*>([\s\S]*?)<\/th>/gi;
-  let thMatch: RegExpExecArray | null;
-  while ((thMatch = thRegex.exec(theadMatch[1])) !== null) {
-    headers.push(decodeEntities(stripTags(thMatch[1])));
+/**
+ * Split a raw subject string on the first space-hyphen-space (' - ') separator.
+ * Prevents truncating subjects containing hyphens (e.g. "COMPILER DESIGN - LAB")
+ * or splitting codes like "MA-101".
+ */
+function splitSubject(rawSubject: string): { subject: string; subjectName: string } {
+  const cleanRaw = rawSubject.trim();
+  const separatorIdx = cleanRaw.indexOf(' - ');
+  if (separatorIdx !== -1) {
+    const subject = cleanRaw.substring(0, separatorIdx).trim();
+    const subjectName = cleanRaw.substring(separatorIdx + 3).trim();
+    return { subject, subjectName };
   }
-  return headers;
-}
-
-/** Extract all <tr> row contents from an HTML table body. */
-function extractTableRows(html: string): string[][] {
-  const rows: string[][] = [];
-  // Match each <tr>...</tr>
-  const trRegex = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
-  let trMatch: RegExpExecArray | null;
-  while ((trMatch = trRegex.exec(html)) !== null) {
-    const rowHtml = trMatch[1];
-
-    // Extract <td> contents
-    const cells: string[] = [];
-    const tdRegex = /<td[^>]*>([\s\S]*?)<\/td>/gi;
-    let tdMatch: RegExpExecArray | null;
-    while ((tdMatch = tdRegex.exec(rowHtml)) !== null) {
-      cells.push(decodeEntities(stripTags(tdMatch[1])));
-    }
-    if (cells.length > 0) {
-      rows.push(cells);
-    }
-  }
-  return rows;
+  return { subject: cleanRaw, subjectName: '' };
 }
 
 // ─── Attendance ─────────────────────────────────────────────────────────────
@@ -82,133 +48,199 @@ export interface SubjectAttendance {
 
 /**
  * Parse the ETLAB attendance page HTML.
- *
- * Expected table columns (may vary):
- *   Sl.No | Subject | Total Hours | Hours Present | Hours Absent | Percentage
- * or similar variations.
+ * Supports both horizontal (student roster) and vertical layouts.
  */
-export function parseAttendance(html: string): SubjectAttendance[] {
+export function parseAttendance(html: string, studentRollNo?: string): SubjectAttendance[] {
   const results: SubjectAttendance[] = [];
-  const headers = extractTableHeaders(html);
-  
-  // Check if this is the horizontal attendance grid (student row with subject columns)
-  const isHorizontal = headers.some(h => /reg\s*no|roll\s*no|name/i.test(h));
-  
-  if (isHorizontal) {
-    const rows = extractTableRows(html);
-    if (rows.length === 0) return results;
+
+  if (html.length > MAX_HTML_LENGTH) {
+    throw new Error('HTML payload too large');
+  }
+
+  const $ = cheerio.load(html);
+  const $tables = $('table');
+  if ($tables.length === 0) return results;
+
+  $tables.each((_, tableEl) => {
+    const $table = $(tableEl);
     
-    // Take the first row (the logged-in student's row)
-    const cells = rows[0];
+    // Extract headers
+    const headers: string[] = [];
+    $table.find('thead th, tr:first-child th').each((_, thEl) => {
+      headers.push($(thEl).text().trim().toLowerCase());
+    });
     
-    // Map headers to cells
-    for (let i = 0; i < headers.length; i++) {
-      const header = headers[i].trim();
-      
-      // Skip metadata and totals columns
-      if (/reg\s*no|roll\s*no|name|total|percentage/i.test(header) || !header) {
-        continue;
+    if (headers.length === 0) {
+      $table.find('tr:first-child td').each((_, tdEl) => {
+        headers.push($(tdEl).text().trim().toLowerCase());
+      });
+    }
+
+    const isHorizontal = headers.some(h => /reg\s*no|roll\s*no|name/i.test(h));
+
+    if (isHorizontal) {
+      const rows: string[][] = [];
+      $table.find('tbody tr, tr').each((rowIdx, trEl) => {
+        if (rowIdx === 0 && $table.find('thead').length === 0) return;
+        
+        const cells: string[] = [];
+        $(trEl).find('td').each((_, tdEl) => {
+          cells.push($(tdEl).text().trim());
+        });
+        if (cells.length > 0) {
+          rows.push(cells);
+        }
+      });
+
+      if (rows.length === 0) return;
+
+      // Match the logged-in student's row via roll number / register number
+      const regNoIdx = headers.findIndex(h => /reg\s*no|roll\s*no/i.test(h));
+      let cells = rows[0];
+      if (studentRollNo && regNoIdx !== -1) {
+        const targetRoll = studentRollNo.trim().toLowerCase();
+        const matchedRow = rows.find(r => {
+          const cellVal = (r[regNoIdx] || '').trim().toLowerCase();
+          return cellVal === targetRoll || cellVal.replace(/[^a-z0-9]/g, '') === targetRoll.replace(/[^a-z0-9]/g, '');
+        });
+        if (matchedRow) {
+          cells = matchedRow;
+        } else {
+          if (isDev) {
+            console.warn(`[Parser] studentRollNo "${studentRollNo}" not matched in roster. Using first row.`);
+          }
+        }
       }
-      
-      const cellVal = cells[i] ? cells[i].trim() : '';
-      if (!cellVal) continue;
-      
-      // Parse "Attended/Total (Percentage%)" - e.g. "45/47 (96%)"
-      const match = cellVal.match(/(\d+)\s*\/\s*(\d+)(?:\s*\(\s*(\d+)\s*%\s*\))?/);
-      if (match) {
-        const attended = parseInt(match[1], 10);
-        const total = parseInt(match[2], 10);
-        const percentage = match[3] 
-          ? parseFloat(match[3]) 
-          : (total > 0 ? Math.round((attended / total) * 100) : 0);
-          
+
+      // Map headers to cells
+      for (let i = 0; i < headers.length; i++) {
+        const header = headers[i].trim();
+        if (/reg\s*no|roll\s*no|name|total|percentage/i.test(header) || !header) {
+          continue;
+        }
+        
+        const cellVal = cells[i] ? cells[i].trim() : '';
+        if (!cellVal) continue;
+        
+        const match = cellVal.match(/(\d+)\s*\/\s*(\d+)(?:\s*\(\s*(\d+)\s*%\s*\))?/);
+        if (match) {
+          const attended = parseInt(match[1], 10);
+          const total = parseInt(match[2], 10);
+          const percentage = match[3] 
+            ? parseFloat(match[3]) 
+            : (total > 0 ? Math.round((attended / total) * 100) : 0);
+            
+          results.push({
+            subject: header,
+            professor: '',
+            percentage: Math.round(percentage * 10) / 10,
+            attended,
+            total,
+          });
+        }
+      }
+    } else {
+      // Vertical Table Parser
+      const subjectIdx = headers.findIndex(h => h.includes('subject') || h.includes('course') || h.includes('paper') || h.includes('code'));
+      const totalIdx = headers.findIndex(h => h.includes('total') || h.includes('conducted') || (h.includes('hours') && !h.includes('present') && !h.includes('absent')));
+      const presentIdx = headers.findIndex(h => h.includes('present') || h.includes('attended') || h.includes('present hours'));
+      const percentageIdx = headers.findIndex(h => h.includes('percentage') || h.includes('%'));
+
+      $table.find('tbody tr, tr').each((rowIdx, trEl) => {
+        if ($(trEl).find('th').length > 0) return; // skip header tr
+        if (rowIdx === 0 && $table.find('thead').length === 0) return;
+
+        const cells: string[] = [];
+        $(trEl).find('td').each((_, tdEl) => {
+          cells.push($(tdEl).text().trim());
+        });
+
+        if (cells.length < 2) return;
+
+        const firstCell = cells[0].toLowerCase();
+        if (firstCell.includes('total') || firstCell.includes('no records') || firstCell.includes('no attendance')) {
+          return;
+        }
+
+        let subject = '';
+        let total = 0;
+        let attended = 0;
+        let percentage = 0;
+
+        if (subjectIdx !== -1) {
+          subject = cells[subjectIdx];
+        } else {
+          const nonNumericCell = cells.find(c => isNaN(Number(c.trim())) && c.trim().length > 1);
+          subject = nonNumericCell || cells[0];
+        }
+
+        if (!subject || subject.toLowerCase().includes('total')) return;
+
+        if (totalIdx !== -1 && cells[totalIdx]) {
+          total = parseFloat(cells[totalIdx].replace(/[^\d.]/g, '')) || 0;
+        }
+        if (presentIdx !== -1 && cells[presentIdx]) {
+          attended = parseFloat(cells[presentIdx].replace(/[^\d.]/g, '')) || 0;
+        }
+        if (percentageIdx !== -1 && cells[percentageIdx]) {
+          percentage = parseFloat(cells[percentageIdx].replace(/[^\d.]/g, '')) || 0;
+        }
+
+        // Apply robust heuristics if indices are missing
+        if (totalIdx === -1 || presentIdx === -1) {
+          const nums: number[] = [];
+          cells.forEach(c => {
+            const cleanVal = c.replace(/[%\s]/g, '');
+            const num = parseFloat(cleanVal);
+            if (!isNaN(num) && cleanVal === String(num)) {
+              nums.push(num);
+            }
+          });
+
+          if (nums.length >= 3) {
+            total = nums[0];
+            attended = nums[1];
+            percentage = nums[2];
+          } else if (nums.length === 2) {
+            if (nums[0] === nums[1]) {
+              attended = nums[0];
+              total = nums[1];
+              percentage = 100;
+            } else if (nums[1] > nums[0]) {
+              attended = nums[0];
+              total = nums[1];
+              percentage = total > 0 ? Math.round((attended / total) * 100) : 0;
+            } else {
+              total = nums[0];
+              percentage = nums[1];
+              attended = total > 0 ? Math.round((percentage / 100) * total) : 0;
+            }
+          }
+        }
+
+        if (percentage === 0 && total > 0) {
+          percentage = (attended / total) * 100;
+        }
+
+        if (percentage > 100) percentage = 100;
+        if (percentage < 0) percentage = 0;
+
         results.push({
-          subject: header,
+          subject: subject.trim(),
           professor: '',
           percentage: Math.round(percentage * 10) / 10,
           attended,
           total,
         });
-      }
+      });
     }
-    return results;
-  }
-
-  // Fallback to original vertical parser
-  const rows = extractTableRows(html);
-
-  for (const cells of rows) {
-    if (cells.length < 3) continue;
-
-    let subject = '';
-    let total = 0;
-    let attended = 0;
-    let percentage = 0;
-
-    const nums: number[] = [];
-    let subjectIdx = -1;
-
-    for (let i = 0; i < cells.length; i++) {
-      const val = cells[i].replace(/[%\s]/g, '');
-      const num = parseFloat(val);
-      if (!isNaN(num) && val === String(num)) {
-        nums.push(num);
-      } else if (subjectIdx === -1 && cells[i].length > 1 && isNaN(Number(cells[i]))) {
-        // First non-trivial non-numeric cell = subject name
-        subjectIdx = i;
-        subject = cells[i];
-      }
-    }
-
-    if (!subject || nums.length < 2) continue;
-
-    // Interpret numbers based on count
-    if (nums.length >= 4) {
-      // [slNo, total, present, absent, percentage] or [total, present, absent, percentage]
-      // Take the last 4 numbers: total, present, absent, percentage
-      const tail = nums.slice(-4);
-      total = tail[0];
-      attended = tail[1];
-      // tail[2] = absent (skip)
-      percentage = tail[3];
-    } else if (nums.length === 3) {
-      // [total, present, percentage]
-      total = nums[0];
-      attended = nums[1];
-      percentage = nums[2];
-    } else if (nums.length === 2) {
-      // [present, total] or [percentage, total] — heuristic
-      if (nums[1] > nums[0]) {
-        attended = nums[0];
-        total = nums[1];
-        percentage = total > 0 ? Math.round((attended / total) * 100) : 0;
-      } else {
-        total = nums[0];
-        percentage = nums[1];
-        attended = total > 0 ? Math.round((percentage / 100) * total) : 0;
-      }
-    }
-
-    // Ensure percentage is sane
-    if (percentage > 100) percentage = 100;
-    if (percentage < 0) percentage = 0;
-
-    results.push({
-      subject: subject.trim(),
-      professor: '', // ETLAB attendance tables typically don't include professor names
-      percentage: Math.round(percentage * 10) / 10,
-      attended,
-      total,
-    });
-  }
+  });
 
   return results;
 }
 
-/**
- * The form options available on the attendance history page.
- * Used to POST for specific month/year combinations.
- */
+// ─── Attendance History ─────────────────────────────────────────────────────
+
 export interface AttendanceFormOptions {
   semester: string;
   months: { value: string; label: string }[];
@@ -218,8 +250,7 @@ export interface AttendanceFormOptions {
 }
 
 /**
- * Extract the form dropdown options from the attendance page HTML.
- * This tells us which months/years are available to query.
+ * Extract form options from attendance page.
  */
 export function parseAttendanceFormOptions(html: string): AttendanceFormOptions {
   const $ = cheerio.load(html);
@@ -255,13 +286,15 @@ export function parseAttendanceFormOptions(html: string): AttendanceFormOptions 
     ''
   ) as string;
 
-  console.log('[parseAttendanceFormOptions]', {
-    semester,
-    months: months.map(m => `${m.label}(${m.value})`).join(', '),
-    years: years.join(', '),
-    selectedMonth,
-    selectedYear,
-  });
+  if (isDev) {
+    console.log('[parseAttendanceFormOptions]', {
+      semester,
+      months: months.map(m => `${m.label}(${m.value})`).join(', '),
+      years: years.join(', '),
+      selectedMonth,
+      selectedYear,
+    });
+  }
 
   return { semester, months, years, selectedMonth, selectedYear };
 }
@@ -275,42 +308,42 @@ export interface AttendanceRecord {
 }
 
 /**
- * Parse the ETLAB per-day attendance page HTML using Cheerio.
- *
- * Uses proper DOM traversal to extract subject codes from the first
- * text node inside `<a class="tool-tip">`, avoiding tooltip `<span>` content.
- *
- * The page is at /ktuacademics/student/attendance
+ * Parse daily attendance history. Fail-fast if month or year is unparseable.
  */
 export function parseAttendanceHistory(html: string): AttendanceRecord[] {
   const records: AttendanceRecord[] = [];
+
+  if (html.length > MAX_HTML_LENGTH) {
+    throw new Error('HTML payload too large');
+  }
+
   const $ = cheerio.load(html);
 
-  // Get year and month from form selects/inputs, with robust attribute selector fallbacks for React Native compatibility
   const yearVal = ($('select[name="year"] option:selected').val() || $('select[name="year"] option[selected]').val()) as string;
   const monthVal = ($('select[name="month"] option:selected').val() || $('select[name="month"] option[selected]').val()) as string;
   
   const parsedYear = parseInt(yearVal, 10);
   const parsedMonth = parseInt(monthVal, 10);
-  const now = new Date();
 
   if (isNaN(parsedYear) || isNaN(parsedMonth)) {
-    console.warn(
-      `[Parser] Could not extract year/month from attendance HTML. ` +
-      `Falling back to current date: ${now.getFullYear()}-${now.getMonth() + 1}. ` +
+    throw new Error(
+      `Failed to extract valid year/month from attendance history HTML. ` +
       `yearVal="${yearVal}", monthVal="${monthVal}"`
     );
   }
 
-  const year = isNaN(parsedYear) ? now.getFullYear() : parsedYear;
-  const month = isNaN(parsedMonth) ? (now.getMonth() + 1) : parsedMonth;
+  const year = parsedYear;
+  const month = parsedMonth;
 
-  console.log('[parseAttendanceHistory] Parsed keys:', { yearVal, monthVal, year, month });
+  if (isDev) {
+    console.log('[parseAttendanceHistory] Parsed keys:', { yearVal, monthVal, year, month });
+  }
 
-  // Check if the table exists
   const $table = $('#itsthetable');
   if ($table.length === 0) {
-    console.warn('[Parser] #itsthetable not found in attendance history HTML.');
+    if (isDev) {
+      console.warn('[Parser] #itsthetable not found in attendance history HTML.');
+    }
     return records;
   }
 
@@ -321,17 +354,20 @@ export function parseAttendanceHistory(html: string): AttendanceRecord[] {
   $allRows.each((rowIdx, row) => {
     const $row = $(row);
 
-    // Get day number from <th>
-    const thText = $row.find('th').text();
-    const dayText = thText.replace(/\D/g, '');
-    const day = parseInt(dayText);
-    if (isNaN(day)) {
+    const thText = $row.find('th').text().trim();
+    const match = thText.match(/\b\d{1,2}\b/);
+    let day = match ? parseInt(match[0], 10) : NaN;
+    if (isNaN(day) || day < 1 || day > 31) {
+      const fallbackMatch = thText.match(/\d+/);
+      day = fallbackMatch ? parseInt(fallbackMatch[0], 10) : NaN;
+    }
+    
+    // Bounds validation
+    if (isNaN(day) || day < 1 || day > 31) {
       return;
     }
 
     const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-
-    // Each <td> is a period
     const $cells = $row.find('td');
 
     $cells.each((periodIdx, cell) => {
@@ -343,7 +379,6 @@ export function parseAttendanceHistory(html: string): AttendanceRecord[] {
 
       if (!isPresent && !isAbsent) return;
 
-      // Get subject — first text node inside <a>, before the <span>
       const $a = $cell.find('a.tool-tip');
       const rawText = $a.contents().first().text().trim();
       const codeMatch = rawText.match(/[A-Z]{2,4}\d{2,4}[A-Z]?/i);
@@ -352,11 +387,12 @@ export function parseAttendanceHistory(html: string): AttendanceRecord[] {
       if (codeMatch) {
         subjectCode = codeMatch[0].toUpperCase();
       } else {
-        // Fallback: use raw text up to ' - ' separator, or full text
         const dashIdx = rawText.indexOf(' - ');
         subjectCode = (dashIdx > 0 ? rawText.substring(0, dashIdx) : rawText).trim();
-        if (!subjectCode) return; // truly empty cell — skip
-        console.warn(`[Parser] Non-standard subject code: "${subjectCode}" from raw text: "${rawText}"`);
+        if (!subjectCode) return;
+        if (isDev) {
+          console.warn(`[Parser] Non-standard subject code: "${subjectCode}" from raw text: "${rawText}"`);
+        }
       }
 
       records.push({
@@ -368,24 +404,35 @@ export function parseAttendanceHistory(html: string): AttendanceRecord[] {
     });
   });
 
-  console.log(`[parseAttendanceHistory] Successfully parsed ${records.length} records for ${year}-${month}`);
+  if (isDev) {
+    console.log(`[parseAttendanceHistory] Successfully parsed ${records.length} records for ${year}-${month}`);
+  }
   return records;
 }
 
 /**
- * Normalize various date formats to YYYY-MM-DD.
- * Handles: DD-MM-YYYY, DD/MM/YYYY, YYYY-MM-DD, YYYY/MM/DD
+ * Normalize date strings with range validations (year 2000-2100).
  */
 export function normalizeDate(raw: string): string | null {
   // YYYY-MM-DD or YYYY/MM/DD
   let match = raw.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/);
   if (match) {
-    return `${match[1]}-${match[2].padStart(2, '0')}-${match[3].padStart(2, '0')}`;
+    const y = parseInt(match[1], 10);
+    const m = parseInt(match[2], 10);
+    const d = parseInt(match[3], 10);
+    if (y >= 2000 && y <= 2100 && m >= 1 && m <= 12 && d >= 1 && d <= 31) {
+      return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+    }
   }
   // DD-MM-YYYY or DD/MM/YYYY
   match = raw.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/);
   if (match) {
-    return `${match[3]}-${match[2].padStart(2, '0')}-${match[1].padStart(2, '0')}`;
+    const d = parseInt(match[1], 10);
+    const m = parseInt(match[2], 10);
+    const y = parseInt(match[3], 10);
+    if (y >= 2000 && y <= 2100 && m >= 1 && m <= 12 && d >= 1 && d <= 31) {
+      return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+    }
   }
   return null;
 }
@@ -393,7 +440,7 @@ export function normalizeDate(raw: string): string | null {
 // ─── Results ────────────────────────────────────────────────────────────────
 
 export interface ResultEntry {
-  /** Exam / assessment name (e.g., "Series 1", "Internal") */
+  /** Exam / assessment name (e.g. "Series 1") */
   name: string;
   /** Marks obtained (null if not entered yet) */
   marks: number | null;
@@ -412,14 +459,12 @@ export interface SubjectResult {
   results: ResultEntry[];
 }
 
-/** Map raw exam/sessional names like "Result 1" or sessional indices to user-friendly names like "Regular" or "Series 1". */
 function cleanExamName(sectionTitle: string, examVal: string): string {
   const sec = sectionTitle.trim();
   const secLower = sec.toLowerCase();
   const val = examVal.trim();
   const valLower = val.toLowerCase();
 
-  // If the exam value is just a number (e.g. "1", "2")
   if (/^\d+$/.test(val)) {
     const num = parseInt(val, 10);
     if (secLower.includes('sessional exam') || secLower.includes('sessional') || secLower.includes('exam')) {
@@ -451,17 +496,14 @@ function cleanExamName(sectionTitle: string, examVal: string): string {
       if (num === 2) return 'Supplementary / Revaluation';
       return `Supplementary ${num - 1}`;
     }
-    // Fallback if it's just a number
     return `${sec} ${num}`;
   }
 
-  // Handle "Result 1", "Result 2" text format
   if (valLower === 'result 1') return 'Regular';
   if (valLower === 'result 2') return 'Supplementary / Revaluation';
   if (valLower === 'result 3') return 'Supplementary 2';
   if (valLower === 'result 4') return 'Supplementary 3';
 
-  // General fallback
   if (val) {
     if (secLower.includes(valLower)) return sec;
     return sec ? `${sec} - ${val}` : val;
@@ -470,38 +512,50 @@ function cleanExamName(sectionTitle: string, examVal: string): string {
 }
 
 /**
- * Parse the ETLAB results page HTML.
- *
- * The results page may have:
- * - A single large table with all subjects and exams
- * - Multiple tables per subject
- * - Or a card/section layout
- *
- * We try multiple strategies to extract structured data.
+ * Parse results page. Outputs plaintext strings only. Consolidates on Cheerio.
  */
 export function parseResults(html: string): SubjectResult[] {
   const results: SubjectResult[] = [];
 
-  // Match <h2> to <h6> or <caption> headers followed by a <table>
-  const titleAndTableRegex = /<(h[2-6]|caption)[^>]*>\s*([\s\S]*?)\s*<\/\1>[\s\S]*?<table[^>]*>([\s\S]*?)<\/table>/gi;
-  let match: RegExpExecArray | null;
+  if (html.length > MAX_HTML_LENGTH) {
+    throw new Error('HTML payload too large');
+  }
 
-  while ((match = titleAndTableRegex.exec(html)) !== null) {
-    const sectionTitle = decodeEntities(stripTags(match[2])).trim();
-    const tableHtml = match[3];
+  const $ = cheerio.load(html);
+  const $tables = $('table');
+  if ($tables.length === 0) return results;
 
-    // 1. Extract headers to find column mappings
-    const headers: string[] = [];
-    const theadMatch = tableHtml.match(/<thead[^>]*>([\s\S]*?)<\/thead>/i);
-    if (theadMatch) {
-      const thRegex = /<th[^>]*>([\s\S]*?)<\/th>/gi;
-      let thMatch: RegExpExecArray | null;
-      while ((thMatch = thRegex.exec(theadMatch[1])) !== null) {
-        headers.push(decodeEntities(stripTags(thMatch[1])).toLowerCase());
+  $tables.each((_, tableEl) => {
+    const $table = $(tableEl);
+    
+    // Find preceding heading
+    let sectionTitle = '';
+    const $caption = $table.find('caption');
+    if ($caption.length > 0) {
+      sectionTitle = $caption.text().trim();
+    } else {
+      let $prev = $table.prev();
+      while ($prev.length > 0) {
+        const tagName = ($prev[0] as any).name;
+        if (/^h[1-6]$/i.test(tagName)) {
+          sectionTitle = $prev.text().trim();
+          break;
+        }
+        $prev = $prev.prev();
       }
     }
 
-    // Find all Result/Grade columns
+    const headers: string[] = [];
+    $table.find('thead th, tr:first-child th').each((_, thEl) => {
+      headers.push($(thEl).text().trim().toLowerCase());
+    });
+    
+    if (headers.length === 0) {
+      $table.find('tr:first-child td').each((_, tdEl) => {
+        headers.push($(tdEl).text().trim().toLowerCase());
+      });
+    }
+
     const resultColIndices: { idx: number; headerName: string }[] = [];
     headers.forEach((h, idx) => {
       if (h.includes('result') || h.includes('grade')) {
@@ -511,44 +565,35 @@ export function parseResults(html: string): SubjectResult[] {
 
     const isUniversityResult = resultColIndices.length > 0;
 
-    // A. Parse as University Result if it has grade/result columns
     if (isUniversityResult) {
       const examIdx = headers.findIndex((h) => h.includes('exam') || h.includes('name') || h.includes('title'));
       const subjectIdx = headers.findIndex((h) => h.includes('subject') || h.includes('course') || h.includes('paper') || h.includes('code'));
       
-      if (subjectIdx === -1) continue;
+      if (subjectIdx === -1) return;
 
-      const tbodyMatch = tableHtml.match(/<tbody[^>]*>([\s\S]*?)<\/tbody>/i);
-      const searchArea = tbodyMatch ? tbodyMatch[1] : tableHtml;
-
-      const trRegex = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
-      let trMatch: RegExpExecArray | null;
-
-      while ((trMatch = trRegex.exec(searchArea)) !== null) {
-        const rowHtml = trMatch[1];
-        if (/<th[\s>]/i.test(rowHtml)) continue;
+      $table.find('tbody tr, tr').each((rowIdx, trEl) => {
+        const $row = $(trEl);
+        if ($row.find('th').length > 0) return;
+        if (rowIdx === 0 && $table.find('thead').length === 0) return;
 
         const cells: string[] = [];
-        const tdRegex = /<td[^>]*>([\s\S]*?)<\/td>/gi;
-        let tdMatch: RegExpExecArray | null;
-        while ((tdMatch = tdRegex.exec(rowHtml)) !== null) {
-          cells.push(decodeEntities(stripTags(tdMatch[1])).trim());
-        }
+        $row.find('td').each((_, tdEl) => {
+          cells.push($(tdEl).text().trim());
+        });
 
-        if (cells.length === 0 || cells[0].includes('No sessional') || cells[0].includes('No results') || cells[0].includes('empty')) {
-          continue;
+        if (cells.length === 0) return;
+        const firstCell = cells[0].toLowerCase();
+        if (firstCell.includes('no sessional') || firstCell.includes('no results') || firstCell.includes('empty')) {
+          return;
         }
 
         const rawSubject = cells[subjectIdx] || '';
         if (!rawSubject || rawSubject.toLowerCase().includes('no results')) {
-          continue;
+          return;
         }
 
-        const subjectParts = rawSubject.split('-');
-        const subject = subjectParts[0].trim();
-        const subjectName = subjectParts[1] ? subjectParts[1].trim() : '';
+        const { subject, subjectName } = splitSubject(rawSubject);
 
-        // Base exam name (e.g. "B.Tech S6 Exam May 2025")
         let baseExamName = examIdx !== -1 && cells[examIdx] ? cells[examIdx].trim() : '';
         if (!baseExamName) {
           baseExamName = sectionTitle;
@@ -560,15 +605,12 @@ export function parseResults(html: string): SubjectResult[] {
           results.push(subjGroup);
         }
 
-        // For each result/grade column
         for (const col of resultColIndices) {
           const grade = cells[col.idx] || '';
-          // Skip if empty or hyphen (meaning no grade/not registered for supplementary)
           if (!grade || grade === '-' || grade.toLowerCase() === 'nil' || grade.toLowerCase() === 'empty') {
             continue;
           }
 
-          // Format name based on header (Result 1 -> Regular, Result 2 -> Supplementary, etc.)
           let examName = baseExamName;
           const hName = col.headerName.toLowerCase();
           if (hName.includes('result 2')) {
@@ -590,149 +632,150 @@ export function parseResults(html: string): SubjectResult[] {
             grade,
           });
         }
-      }
-      continue;
-    }
+      });
+    } else {
+      // Sessional Exam Table
+      const subjectIdx = headers.findIndex((h) => h.includes('subject') || h.includes('course') || h.includes('paper') || h.includes('code'));
+      const maxMarksIdx = headers.findIndex((h) => h.includes('maximum') || h.includes('max') || h.includes('limit'));
+      const marksObtainedIdx = headers.findIndex((h, idx) => 
+        idx !== maxMarksIdx && 
+        (h.includes('obtained') || h.includes('marks') || h.includes('mark') || h.includes('score'))
+      );
 
-    // Find column indices with highly robust rules
-    const subjectIdx = headers.findIndex((h) => h.includes('subject') || h.includes('course') || h.includes('paper') || h.includes('code'));
-    const maxMarksIdx = headers.findIndex((h) => h.includes('maximum') || h.includes('max') || h.includes('limit'));
-    const marksObtainedIdx = headers.findIndex((h, idx) => 
-      idx !== maxMarksIdx && 
-      (h.includes('obtained') || h.includes('marks') || h.includes('mark') || h.includes('score'))
-    );
-
-    // Find exam/assessment name column (excluding subject, max marks, marks obtained, semester, view response)
-    const examNameIdx = headers.findIndex((h, idx) =>
-      idx !== subjectIdx &&
-      idx !== maxMarksIdx &&
-      idx !== marksObtainedIdx &&
-      !h.includes('semester') &&
-      !h.includes('view') &&
-      h.trim().length > 0
-    );
-
-    if (subjectIdx === -1 || maxMarksIdx === -1 || marksObtainedIdx === -1) {
-      // Table doesn't match a standard results table layout
-      continue;
-    }
-
-    // B. Parse as Sessional Exam Table
-    const tbodyMatch = tableHtml.match(/<tbody[^>]*>([\s\S]*?)<\/tbody>/i);
-    const searchArea = tbodyMatch ? tbodyMatch[1] : tableHtml;
-
-    const trRegex = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
-    let trMatch: RegExpExecArray | null;
-
-    while ((trMatch = trRegex.exec(searchArea)) !== null) {
-      const rowHtml = trMatch[1];
-      if (/<th[\s>]/i.test(rowHtml)) continue;
-
-      const cells: string[] = [];
-      const tdRegex = /<td[^>]*>([\s\S]*?)<\/td>/gi;
-      let tdMatch: RegExpExecArray | null;
-      while ((tdMatch = tdRegex.exec(rowHtml)) !== null) {
-        cells.push(decodeEntities(stripTags(tdMatch[1])));
+      let examNameIdx = headers.findIndex((h) => 
+        /exam|assessment|sessional|test|type|description/i.test(h)
+      );
+      if (examNameIdx === -1) {
+        examNameIdx = headers.findIndex((h, idx) =>
+          idx !== subjectIdx &&
+          idx !== maxMarksIdx &&
+          idx !== marksObtainedIdx &&
+          !/sl\s*no|semester|view|action/i.test(h) &&
+          h.trim().length > 0
+        );
       }
 
-      if (cells.length === 0 || cells[0].includes('No sessional') || cells[0].includes('No module') || cells[0].includes('empty')) {
-        continue;
+      if (subjectIdx === -1 || maxMarksIdx === -1 || marksObtainedIdx === -1) {
+        return;
       }
 
-      const rawSubject = cells[subjectIdx] || '';
-      if (!rawSubject || rawSubject.toLowerCase().includes('no results') || rawSubject.toLowerCase().includes('no sessional')) {
-        continue;
-      }
+      $table.find('tbody tr, tr').each((rowIdx, trEl) => {
+        const $row = $(trEl);
+        if ($row.find('th').length > 0) return;
+        if (rowIdx === 0 && $table.find('thead').length === 0) return;
 
-      // Clean subject code (e.g. "CST302 - COMPILER DESIGN" -> "CST302" and "COMPILER DESIGN")
-      const subjectParts = rawSubject.split('-');
-      const subject = subjectParts[0].trim();
-      const subjectName = subjectParts[1] ? subjectParts[1].trim() : '';
+        const cells: string[] = [];
+        $row.find('td').each((_, tdEl) => {
+          cells.push($(tdEl).text().trim());
+        });
 
-      // Determine assessment title
-      const examVal = examNameIdx !== -1 && cells[examNameIdx] ? cells[examNameIdx].trim() : '';
-      const examName = cleanExamName(sectionTitle, examVal);
-
-      // Parse marks
-      const maxVal = cells[maxMarksIdx] ? cells[maxMarksIdx].replace(/[^\d.]/g, '') : '';
-      const obtainedVal = cells[marksObtainedIdx] ? cells[marksObtainedIdx].trim() : '';
-
-      const total = parseFloat(maxVal) || 100;
-      let marks: number | null = parseFloat(obtainedVal.replace(/[^\d.]/g, ''));
-      let grade = '';
-
-      if (isNaN(marks)) {
-        const lowerVal = obtainedVal.toLowerCase();
-        if (lowerVal === 'a' || lowerVal === 'ab' || lowerVal === 'absent') {
-          marks = 0;
-          grade = 'Absent';
-        } else {
-          // If no marks have been entered yet, keep it as null
-          marks = null;
+        if (cells.length === 0) return;
+        const firstCell = cells[0].toLowerCase();
+        if (firstCell.includes('no sessional') || firstCell.includes('no module') || firstCell.includes('empty')) {
+          return;
         }
-      }
 
-      let subjGroup = results.find((r) => r.subject === subject);
-      if (!subjGroup) {
-        subjGroup = { subject, subjectName, results: [] };
-        results.push(subjGroup);
-      }
+        const rawSubject = cells[subjectIdx] || '';
+        if (!rawSubject || rawSubject.toLowerCase().includes('no results') || rawSubject.toLowerCase().includes('no sessional')) {
+          return;
+        }
 
-      subjGroup.results.push({
-        name: examName,
-        marks,
-        total,
-        grade,
+        const { subject, subjectName } = splitSubject(rawSubject);
+
+        const examVal = examNameIdx !== -1 && cells[examNameIdx] ? cells[examNameIdx].trim() : '';
+        const examName = cleanExamName(sectionTitle, examVal);
+
+        const maxVal = cells[maxMarksIdx] ? cells[maxMarksIdx].replace(/[^\d.]/g, '') : '';
+        const obtainedVal = cells[marksObtainedIdx] ? cells[marksObtainedIdx].trim() : '';
+
+        // Avoid defaulting 0 to 100
+        const parsedMax = parseFloat(maxVal);
+        const total = isNaN(parsedMax) ? 100 : parsedMax;
+        
+        let marks: number | null = parseFloat(obtainedVal.replace(/[^\d.]/g, ''));
+        let grade = '';
+
+        if (isNaN(marks)) {
+          const lowerVal = obtainedVal.toLowerCase();
+          if (lowerVal === 'a' || lowerVal === 'ab' || lowerVal === 'absent') {
+            marks = 0;
+            grade = 'Absent';
+          } else {
+            marks = null;
+          }
+        }
+
+        let subjGroup = results.find((r) => r.subject === subject);
+        if (!subjGroup) {
+          subjGroup = { subject, subjectName, results: [] };
+          results.push(subjGroup);
+        }
+
+        subjGroup.results.push({
+          name: examName,
+          marks,
+          total,
+          grade,
+        });
       });
     }
-  }
+  });
 
-  // Fallback: If Strategy 1 parsed nothing, try Strategy 2 (single table with subject column)
+  // Fallback Strategy 2
   if (results.length === 0) {
-    const rows = extractTableRows(html);
     const subjectMap = new Map<string, ResultEntry[]>();
 
-    for (const cells of rows) {
-      if (cells.length < 3) continue;
-      const subject = cells[0];
-      const examName = cells[1];
-      if (!subject || !examName) continue;
+    $('table').each((_, tableEl) => {
+      const $table = $(tableEl);
+      $table.find('tbody tr, tr').each((rowIdx, trEl) => {
+        const $row = $(trEl);
+        if ($row.find('th').length > 0) return;
 
-      const obtainedVal = cells[2] ? cells[2].trim() : '';
-      const maxVal = cells[3] ? cells[3].replace(/[^\d.]/g, '') : '';
+        const cells: string[] = [];
+        $row.find('td').each((_, tdEl) => {
+          cells.push($(tdEl).text().trim());
+        });
 
-      let marks: number | null = parseFloat(obtainedVal.replace(/[^\d.]/g, ''));
-      let grade = cells.length > 4 ? cells[cells.length - 1] : '';
+        if (cells.length < 3) return;
+        const subject = cells[0];
+        const examName = cells[1];
+        if (!subject || !examName) return;
 
-      if (isNaN(marks)) {
-        const lowerVal = obtainedVal.toLowerCase();
-        if (lowerVal === 'a' || lowerVal === 'ab' || lowerVal === 'absent') {
-          marks = 0;
-          grade = 'Absent';
-        } else {
-          marks = null;
+        const obtainedVal = cells[2] ? cells[2].trim() : '';
+        const maxVal = cells[3] ? cells[3].replace(/[^\d.]/g, '') : '';
+
+        let marks: number | null = parseFloat(obtainedVal.replace(/[^\d.]/g, ''));
+        let grade = cells.length > 4 ? cells[cells.length - 1] : '';
+
+        if (isNaN(marks)) {
+          const lowerVal = obtainedVal.toLowerCase();
+          if (lowerVal === 'a' || lowerVal === 'ab' || lowerVal === 'absent') {
+            marks = 0;
+            grade = 'Absent';
+          } else {
+            marks = null;
+          }
         }
-      }
 
-      const total = parseFloat(maxVal) || 100;
+        const parsedMax = parseFloat(maxVal);
+        const total = isNaN(parsedMax) ? 100 : parsedMax;
 
-      const entry: ResultEntry = {
-        name: cleanExamName("", examName),
-        marks,
-        total,
-        grade,
-      };
+        const entry: ResultEntry = {
+          name: cleanExamName("", examName),
+          marks,
+          total,
+          grade,
+        };
 
-      if (!subjectMap.has(subject)) {
-        subjectMap.set(subject, []);
-      }
-      subjectMap.get(subject)!.push(entry);
-    }
+        if (!subjectMap.has(subject)) {
+          subjectMap.set(subject, []);
+        }
+        subjectMap.get(subject)!.push(entry);
+      });
+    });
 
     for (const [rawSubject, entries] of subjectMap) {
-      const subjectParts = rawSubject.split('-');
-      const subject = subjectParts[0].trim();
-      const subjectName = subjectParts[1] ? subjectParts[1].trim() : '';
+      const { subject, subjectName } = splitSubject(rawSubject);
 
       let subjGroup = results.find((r) => r.subject === subject);
       if (!subjGroup) {
@@ -770,31 +813,37 @@ function normalizeAssignmentStatus(raw: string): AssignmentStatus {
 }
 
 /**
- * Parse the ETLAB assignments page HTML.
- *
- * Expected table columns:
- *   Sl.No | Subject | Assignment Title | Due Date | Status | ...
+ * Parse assignments. Consolidates on Cheerio.
  */
 export function parseAssignments(html: string): Assignment[] {
   const results: Assignment[] = [];
-  const rows = extractTableRows(html);
 
-  for (const cells of rows) {
-    if (cells.length < 3) continue;
+  if (html.length > MAX_HTML_LENGTH) {
+    throw new Error('HTML payload too large');
+  }
 
-    // Find cells that look like a date
+  const $ = cheerio.load(html);
+
+  $('table tr').each((_, trEl) => {
+    const $row = $(trEl);
+    if ($row.find('th').length > 0) return;
+
+    const cells: string[] = [];
+    $row.find('td').each((_, tdEl) => {
+      cells.push($(tdEl).text().trim());
+    });
+
+    if (cells.length < 3) return;
+
     let dueDate = '';
     let statusCell = '';
     let title = '';
     let subject = '';
 
     for (const cell of cells) {
-      // Date pattern: DD-MM-YYYY, DD/MM/YYYY, YYYY-MM-DD, or text dates
       if (!dueDate && /\d{1,4}[-\/]\d{1,2}[-\/]\d{1,4}/.test(cell)) {
         dueDate = cell;
-      }
-      // Status keywords
-      else if (
+      } else if (
         !statusCell &&
         /submitted|pending|overdue|not\s*submit|expired|late|completed/i.test(cell)
       ) {
@@ -802,7 +851,6 @@ export function parseAssignments(html: string): Assignment[] {
       }
     }
 
-    // For remaining text cells (non-numeric, non-date, non-status), assign to subject/title
     const textCells = cells.filter(
       (c) =>
         c !== dueDate &&
@@ -818,7 +866,7 @@ export function parseAssignments(html: string): Assignment[] {
       title = textCells[0];
     }
 
-    if (!title) continue;
+    if (!title) return;
 
     results.push({
       title: title.trim(),
@@ -826,7 +874,7 @@ export function parseAssignments(html: string): Assignment[] {
       dueDate: dueDate || 'To be announced',
       status: statusCell ? normalizeAssignmentStatus(statusCell) : 'unknown',
     });
-  }
+  });
 
   return results;
 }
@@ -857,90 +905,83 @@ function normalizeSurveyStatus(raw: string): SurveyStatus {
 }
 
 /**
- * Parse the ETLAB surveys page HTML.
- *
- * Survey pages may use:
- * - A table layout with columns: Title, Status, Deadline, Action
- * - A card/list layout with survey items
+ * Parse surveys. Consolidates on Cheerio and maps links directly inside each row.
  */
 export function parseSurveys(html: string): Survey[] {
   const results: Survey[] = [];
 
-  // Strategy 1: Table-based
-  const rows = extractTableRows(html);
-  if (rows.length > 0) {
-    // Find all <tr> tags to correlate with the rows
-    const trRegex = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
-    const trContents: string[] = [];
-    let trMatch: RegExpExecArray | null;
-    while ((trMatch = trRegex.exec(html)) !== null) {
-      const rowHtml = trMatch[1];
-      if (/<th[\s>]/i.test(rowHtml)) continue;
-      trContents.push(rowHtml);
-    }
-
-    for (let idx = 0; idx < rows.length; idx++) {
-      const cells = rows[idx];
-      if (cells.length < 2) continue;
-
-      let title = '';
-      let statusText = '';
-      let deadline = '';
-      let url = '';
-
-      // Extract URL from original tr HTML if available
-      const trHtml = trContents[idx];
-      if (trHtml) {
-        const hrefMatch = trHtml.match(/href\s*=\s*["']([^"']+)["']/i);
-        if (hrefMatch) {
-          const href = hrefMatch[1];
-          url = href.startsWith('http') ? href : `https://gcek.etlab.in${href}`;
-        }
-      }
-
-      for (const cell of cells) {
-        if (!deadline && /\d{1,4}[-\/]\d{1,2}[-\/]\d{1,4}/.test(cell)) {
-          deadline = cell;
-        } else if (
-          !statusText &&
-          /completed|pending|new|open|done|filled|available|not\s*filled/i.test(cell)
-        ) {
-          statusText = cell;
-        }
-      }
-
-      const textCells = cells.filter(
-        (c) =>
-          c !== deadline &&
-          c !== statusText &&
-          isNaN(Number(c.trim())) &&
-          c.trim().length > 0
-      );
-
-      if (textCells.length >= 1) {
-        title = textCells[0];
-      }
-
-      if (!title) continue;
-
-      results.push({
-        title: title.trim(),
-        description: textCells.length >= 2 ? textCells[1].trim() : '',
-        deadline: deadline || '',
-        status: statusText ? normalizeSurveyStatus(statusText) : 'unknown',
-        url,
-      });
-    }
+  if (html.length > MAX_HTML_LENGTH) {
+    throw new Error('HTML payload too large');
   }
+
+  const $ = cheerio.load(html);
+
+  // Strategy 1: Table-based
+  $('table tr').each((_, trEl) => {
+    const $row = $(trEl);
+    if ($row.find('th').length > 0) return;
+
+    const cells: string[] = [];
+    $row.find('td').each((_, tdEl) => {
+      cells.push($(tdEl).text().trim());
+    });
+
+    if (cells.length < 2) return;
+
+    let title = '';
+    let statusText = '';
+    let deadline = '';
+    let url = '';
+
+    // Extract link URL directly from the same <tr> element
+    const $link = $row.find('a[href]');
+    if ($link.length > 0) {
+      const href = $link.attr('href') || '';
+      if (href) {
+        url = href.startsWith('http') ? href : `https://gcek.etlab.in${href}`;
+      }
+    }
+
+    for (const cell of cells) {
+      if (!deadline && /\d{1,4}[-\/]\d{1,2}[-\/]\d{1,4}/.test(cell)) {
+        deadline = cell;
+      } else if (
+        !statusText &&
+        /completed|pending|new|open|done|filled|available|not\s*filled/i.test(cell)
+      ) {
+        statusText = cell;
+      }
+    }
+
+    const textCells = cells.filter(
+      (c) =>
+        c !== deadline &&
+        c !== statusText &&
+        isNaN(Number(c.trim())) &&
+        c.trim().length > 0
+    );
+
+    if (textCells.length >= 1) {
+      title = textCells[0];
+    }
+
+    if (!title) return;
+
+    results.push({
+      title: title.trim(),
+      description: textCells.length >= 2 ? textCells[1].trim() : '',
+      deadline: deadline || '',
+      status: statusText ? normalizeSurveyStatus(statusText) : 'unknown',
+      url,
+    });
+  });
 
   // Strategy 2: Card/link-based layout
   if (results.length === 0) {
-    // Look for links with survey-related hrefs
-    const linkRegex = /<a[^>]*href\s*=\s*["']([^"']*survey[^"']*)["'][^>]*>([\s\S]*?)<\/a>/gi;
-    let linkMatch: RegExpExecArray | null;
-    while ((linkMatch = linkRegex.exec(html)) !== null) {
-      const surveyUrl = linkMatch[1];
-      const linkText = decodeEntities(stripTags(linkMatch[2])).trim();
+    $('a[href*="survey"], a[href*="Survey"]').each((_, aEl) => {
+      const $a = $(aEl);
+      const surveyUrl = $a.attr('href') || '';
+      const linkText = $a.text().trim();
       if (linkText && linkText.length > 2) {
         results.push({
           title: linkText,
@@ -950,7 +991,7 @@ export function parseSurveys(html: string): Survey[] {
           url: surveyUrl.startsWith('http') ? surveyUrl : `https://gcek.etlab.in${surveyUrl}`,
         });
       }
-    }
+    });
   }
 
   return results;
@@ -959,8 +1000,7 @@ export function parseSurveys(html: string): Survey[] {
 // ─── Login page detection ───────────────────────────────────────────────────
 
 /**
- * Detect if the given HTML is actually the ETLAB login page,
- * indicating the session has expired.
+ * Detect if the given HTML is actually the ETLAB login page.
  */
 export function isLoginPage(html: string): boolean {
   return (
@@ -974,13 +1014,13 @@ export function isLoginPage(html: string): boolean {
 
 export interface TimetableCell {
   subject: string;
-  type: string; // e.g. 'Theory', 'Practical', 'Elective', 'Tutorial', 'Free Period', 'Drawing', etc.
+  type: string; 
   teacher?: string;
   classType: 'TR' | 'PR' | 'EL' | 'TL' | 'FP' | 'DR' | 'MIN' | '';
 }
 
 export interface TimetableDay {
-  day: string; // Monday, Tuesday, etc.
+  day: string; 
   periods: TimetableCell[];
 }
 
@@ -996,8 +1036,7 @@ export interface TimetableData {
 }
 
 /**
- * Parse the ETLAB weekly timetable page HTML using Cheerio.
- * The page is at /student/timetable
+ * Parse timetable page using Cheerio.
  */
 export function parseTimetable(html: string): TimetableData {
   const $ = cheerio.load(html);
@@ -1006,12 +1045,10 @@ export function parseTimetable(html: string): TimetableData {
     days: [],
   };
 
-  // 1. Parse header periods and times
   $('#timetable table thead tr th').each((idx, el) => {
-    if (idx === 0) return; // Skip "Day" header
+    if (idx === 0) return;
     const rawText = $(el).text().trim();
     
-    // Clean up text, split "Period X" and time slot "[ 9AM--10AM]"
     const cleanText = rawText.replace(/\s+/g, ' ');
     const timeMatch = cleanText.match(/(Period\s+\d+)\s*(?:\[\s*([^\]]+)\s*\])?/i);
     
@@ -1029,7 +1066,6 @@ export function parseTimetable(html: string): TimetableData {
     }
   });
 
-  // 2. Parse daily rows
   $('#timetable table tbody tr').each((_, trEl) => {
     const $row = $(trEl);
     const dayName = $row.find('td').first().text().trim();
@@ -1038,7 +1074,7 @@ export function parseTimetable(html: string): TimetableData {
     const periods: TimetableCell[] = [];
 
     $row.find('td').each((tdIdx, tdEl) => {
-      if (tdIdx === 0) return; // Skip first column (Day name)
+      if (tdIdx === 0) return; 
       const $td = $(tdEl);
       const className = ($td.attr('class') || '').toUpperCase().trim();
       
@@ -1047,8 +1083,6 @@ export function parseTimetable(html: string): TimetableData {
         if (node.type === 'text') {
           const text = $(node).text().trim();
           if (text) parts.push(text);
-        } else if (node.type === 'tag' && node.name === 'br') {
-          // br tag, just keep separating
         } else {
           const text = $(node).text().trim();
           if (text) parts.push(text);
@@ -1073,7 +1107,6 @@ export function parseTimetable(html: string): TimetableData {
         }
       }
 
-      // Determine class type code
       let classType: TimetableCell['classType'] = '';
       if (className.includes('TR')) classType = 'TR';
       else if (className.includes('PR')) classType = 'PR';
@@ -1083,7 +1116,6 @@ export function parseTimetable(html: string): TimetableData {
       else if (className.includes('DR')) classType = 'DR';
       else if (className.includes('MIN')) classType = 'MIN';
 
-      // Fallback details if subject is empty
       if (!subject) {
         if (classType === 'FP') {
           subject = 'Free Period';

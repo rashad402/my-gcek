@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Modal,
   StyleSheet,
@@ -6,9 +6,21 @@ import {
   TouchableOpacity,
   View,
   useColorScheme,
+  PanResponder,
+  Dimensions,
+  TouchableWithoutFeedback,
 } from 'react-native';
 import { useLogin } from './login-context';
 import { Colors, Fonts, Spacing, Roundness } from '@/constants/theme';
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withSpring,
+  runOnJS,
+} from 'react-native-reanimated';
+import * as Haptics from 'expo-haptics';
+
+const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 
 /**
  * Shared profile avatar button used across all authenticated screens.
@@ -24,16 +36,67 @@ export function ProfileButton() {
   const initial = username ? username.charAt(0).toUpperCase() : 'U';
 
   const handleLogout = async () => {
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
     setVisible(false);
     await logout();
   };
+
+  // Setup vertical swipe-to-dismiss gesture values
+  const offsetY = useSharedValue(0);
+
+  useEffect(() => {
+    if (visible) {
+      offsetY.value = 0;
+    }
+  }, [visible, offsetY]);
+
+  const animatedSheetStyle = useAnimatedStyle(() => {
+    return {
+      transform: [{ translateY: offsetY.value }],
+    };
+  });
+
+  const animatedBackdropStyle = useAnimatedStyle(() => {
+    const opacity = 1 - Math.min(1, offsetY.value / (SCREEN_HEIGHT * 0.3));
+    return {
+      opacity: opacity,
+    };
+  });
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => false,
+      onMoveShouldSetPanResponder: (_, gestureState) => {
+        return gestureState.dy > 5 && Math.abs(gestureState.dx) < 10;
+      },
+      onPanResponderMove: (_, gestureState) => {
+        if (gestureState.dy > 0) {
+          offsetY.value = gestureState.dy;
+        }
+      },
+      onPanResponderRelease: (_, gestureState) => {
+        if (gestureState.dy > 100 || gestureState.vy > 0.5) {
+          offsetY.value = withSpring(SCREEN_HEIGHT, { damping: 20 }, (finished) => {
+            if (finished) {
+              runOnJS(setVisible)(false);
+            }
+          });
+        } else {
+          offsetY.value = withSpring(0, { damping: 15 });
+        }
+      },
+    })
+  ).current;
 
   return (
     <>
       {/* Avatar circle — same appearance on every screen */}
       <TouchableOpacity
         style={[styles.circle, { backgroundColor: colors.surfaceHigh }]}
-        onPress={() => setVisible(true)}
+        onPress={() => {
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+          setVisible(true);
+        }}
         activeOpacity={0.75}
       >
         <Text style={[styles.initial, { color: colors.textSecondary }]}>{initial}</Text>
@@ -46,31 +109,33 @@ export function ProfileButton() {
         animationType="slide"
         onRequestClose={() => setVisible(false)}
       >
-        <TouchableOpacity
-          style={styles.backdrop}
-          activeOpacity={1}
-          onPress={() => setVisible(false)}
-        />
-        <View style={[styles.sheet, { backgroundColor: colors.background, borderColor: colors.outlineVariant }]}>
-          {/* Handle */}
-          <View style={[styles.handle, { backgroundColor: colors.outlineVariant }]} />
+        <TouchableWithoutFeedback onPress={() => setVisible(false)}>
+          <Animated.View style={[styles.backdrop, animatedBackdropStyle]} />
+        </TouchableWithoutFeedback>
+        
+        <Animated.View style={[styles.sheet, { backgroundColor: colors.background, borderColor: colors.outlineVariant }, animatedSheetStyle]}>
+          {/* Swipe-to-dismiss Drag Area */}
+          <View {...panResponder.panHandlers}>
+            {/* Handle */}
+            <View style={[styles.handle, { backgroundColor: colors.outlineVariant }]} />
 
-          {/* Profile Header / Details */}
-          <View style={styles.profileHeader}>
-            <View style={[styles.largeAvatar, { backgroundColor: colors.surfaceHigh }]}>
-              <Text style={[styles.largeAvatarText, { color: colors.primary }]}>{initial}</Text>
-            </View>
-            <View style={styles.userInfo}>
-              <Text style={[styles.usernameText, { color: colors.text }]}>
-                {username || 'Student'}
-              </Text>
-              <Text style={[styles.roleText, { color: colors.textSecondary }]}>
-                Government College of Engineering, Kannur
-              </Text>
-              <View style={[styles.badge, { backgroundColor: colors.surfaceContainer }]}>
-                <Text style={[styles.badgeText, { color: colors.primary }]}>
-                  Academic Session: 2025-2026
+            {/* Profile Header / Details */}
+            <View style={styles.profileHeader}>
+              <View style={[styles.largeAvatar, { backgroundColor: colors.surfaceHigh }]}>
+                <Text style={[styles.largeAvatarText, { color: colors.primary }]}>{initial}</Text>
+              </View>
+              <View style={styles.userInfo}>
+                <Text style={[styles.usernameText, { color: colors.text }]}>
+                  {username || 'Student'}
                 </Text>
+                <Text style={[styles.roleText, { color: colors.textSecondary }]}>
+                  Government College of Engineering, Kannur
+                </Text>
+                <View style={[styles.badge, { backgroundColor: colors.surfaceContainer }]}>
+                  <Text style={[styles.badgeText, { color: colors.primary }]}>
+                    Academic Session: 2025-2026
+                  </Text>
+                </View>
               </View>
             </View>
           </View>
@@ -89,13 +154,16 @@ export function ProfileButton() {
 
             <TouchableOpacity
               style={[styles.closeButton, { backgroundColor: colors.surfaceContainer }]}
-              onPress={() => setVisible(false)}
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+                setVisible(false);
+              }}
               activeOpacity={0.85}
             >
               <Text style={[styles.closeText, { color: colors.text }]}>Close</Text>
             </TouchableOpacity>
           </View>
-        </View>
+        </Animated.View>
       </Modal>
     </>
   );
@@ -117,10 +185,14 @@ const styles = StyleSheet.create({
 
   /* Modal */
   backdrop: {
-    flex: 1,
+    ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(0,0,0,0.45)',
   },
   sheet: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
     borderTopLeftRadius: Roundness.xl,
     borderTopRightRadius: Roundness.xl,
     borderTopWidth: 1,

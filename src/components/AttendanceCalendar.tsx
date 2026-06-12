@@ -1,14 +1,16 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import {
   StyleSheet,
   View,
   Text,
   TouchableOpacity,
+  PanResponder,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Animated, { FadeInUp, FadeOutDown, LinearTransition } from 'react-native-reanimated';
-import { Fonts, Spacing, Roundness } from '@/constants/theme';
+import { Fonts, Spacing, Roundness, ThemeColors } from '@/constants/theme';
 import { getSubjectName } from '@/services/subject-helper';
+import * as Haptics from 'expo-haptics';
 
 export interface AttendanceRecord {
   date: string;      // 'YYYY-MM-DD'
@@ -20,10 +22,15 @@ export interface AttendanceRecord {
 interface Props {
   records: AttendanceRecord[];
   subjectCode: string;
-  colors: any;
+  colors: ThemeColors;
 }
 
 const DAY_LABELS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
+
+const MONTH_NAMES = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+];
 
 function getDaysInMonth(year: number, month: number): number {
   return new Date(year, month + 1, 0).getDate();
@@ -33,10 +40,11 @@ function getFirstDayOfWeek(year: number, month: number): number {
   return new Date(year, month, 1).getDay();
 }
 
-const MONTH_NAMES = [
-  'January', 'February', 'March', 'April', 'May', 'June',
-  'July', 'August', 'September', 'October', 'November', 'December',
-];
+// Hoisted pure function to extract course code cleanly
+const getCode = (str: string) => {
+  const match = str.match(/[A-Z]{2,4}\d{2,4}[A-Z]?/i);
+  return match ? match[0].toUpperCase() : str.trim().toUpperCase();
+};
 
 export default function AttendanceCalendar({ records, subjectCode, colors }: Props) {
   const now = new Date();
@@ -51,23 +59,42 @@ export default function AttendanceCalendar({ records, subjectCode, colors }: Pro
     setSelectedDate(null);
   }, [currentMonth, currentYear, subjectCode]);
 
-  // Auto-navigate to the month that has records
+  // Track if auto-navigation has initialised for the current subjectCode
+  const didInitNav = useRef(false);
+  const lastSubjectCode = useRef(subjectCode);
+
   useEffect(() => {
-    if (records.length > 0) {
-      // Find the most recent record's date by sorting them chronologically first
-      const sorted = [...records].sort((a, b) => a.date.localeCompare(b.date));
-      const lastRecord = sorted[sorted.length - 1];
-      const parts = lastRecord.date.split('-');
-      if (parts.length === 3) {
-        const recYear = parseInt(parts[0], 10);
-        const recMonth = parseInt(parts[1], 10) - 1; // Convert to 0-indexed
-        if (!isNaN(recYear) && !isNaN(recMonth)) {
-          setCurrentYear(recYear);
-          setCurrentMonth(recMonth);
-        }
+    if (lastSubjectCode.current !== subjectCode) {
+      didInitNav.current = false;
+      lastSubjectCode.current = subjectCode;
+    }
+  }, [subjectCode]);
+
+  // Auto-navigate to the latest month that has records for this subject
+  useEffect(() => {
+    if (didInitNav.current || records.length === 0) return;
+
+    const targetCode = subjectCode ? getCode(subjectCode) : '';
+    const isAllMode = !subjectCode || subjectCode === 'ALL' || subjectCode.trim() === '';
+    const subjectRecords = isAllMode
+      ? records
+      : records.filter(r => getCode(r.subject) === targetCode);
+
+    if (subjectRecords.length === 0) return;
+
+    didInitNav.current = true;
+    const sorted = [...subjectRecords].sort((a, b) => a.date.localeCompare(b.date));
+    const lastRecord = sorted[sorted.length - 1];
+    const parts = lastRecord.date.split('-');
+    if (parts.length === 3) {
+      const recYear = parseInt(parts[0], 10);
+      const recMonth = parseInt(parts[1], 10) - 1; // Convert to 0-indexed
+      if (!isNaN(recYear) && !isNaN(recMonth)) {
+        setCurrentYear(recYear);
+        setCurrentMonth(recMonth);
       }
     }
-  }, [records]);
+  }, [records, subjectCode]);
 
   const handleDatePress = (dateStr: string) => {
     if (selectedDate === dateStr) {
@@ -75,11 +102,6 @@ export default function AttendanceCalendar({ records, subjectCode, colors }: Pro
     } else {
       setSelectedDate(dateStr);
     }
-  };
-
-  const getCode = (str: string) => {
-    const match = str.match(/[A-Z]{2,4}\d{2,4}[A-Z]?/i);
-    return match ? match[0].toUpperCase() : str.trim().toUpperCase();
   };
 
   const formatSelectedDate = (dateStr: string) => {
@@ -117,20 +139,12 @@ export default function AttendanceCalendar({ records, subjectCode, colors }: Pro
   // Filter records for this subject and build a map: date -> 'present' | 'absent' | 'partial'
   const dayStatusMap = useMemo(() => {
     const map: Record<string, 'present' | 'absent' | 'partial'> = {};
-
-    const getCode = (str: string) => {
-      const match = str.match(/[A-Z]{2,4}\d{2,4}[A-Z]?/i);
-      return match ? match[0].toUpperCase() : str.trim().toUpperCase();
-    };
-
     const targetCode = subjectCode ? getCode(subjectCode) : '';
-
     const isAllMode = !subjectCode || subjectCode === 'ALL' || subjectCode.trim() === '';
+
     const subjectRecords = isAllMode
       ? records
-      : records.filter(
-          r => getCode(r.subject) === targetCode
-        );
+      : records.filter(r => getCode(r.subject) === targetCode);
 
     // Group by date
     const byDate: Record<string, AttendanceRecord[]> = {};
@@ -154,8 +168,22 @@ export default function AttendanceCalendar({ records, subjectCode, colors }: Pro
     return map;
   }, [records, subjectCode]);
 
-  const daysInMonth = getDaysInMonth(currentYear, currentMonth);
-  const firstDay = getFirstDayOfWeek(currentYear, currentMonth);
+  // Block infinite empty navigation
+  const hasNextData = useMemo(() => {
+    const cursor = currentYear * 12 + currentMonth;
+    return Object.keys(dayStatusMap).some(d => {
+      const [y, m] = d.split('-').map(Number);
+      return (y * 12 + (m - 1)) > cursor;
+    });
+  }, [dayStatusMap, currentYear, currentMonth]);
+
+  const hasPrevData = useMemo(() => {
+    const cursor = currentYear * 12 + currentMonth;
+    return Object.keys(dayStatusMap).some(d => {
+      const [y, m] = d.split('-').map(Number);
+      return (y * 12 + (m - 1)) < cursor;
+    });
+  }, [dayStatusMap, currentYear, currentMonth]);
 
   const goPrev = () => {
     if (currentMonth === 0) {
@@ -175,26 +203,95 @@ export default function AttendanceCalendar({ records, subjectCode, colors }: Pro
     }
   };
 
+  // Monthly stats calculations
+  const monthlyStats = useMemo(() => {
+    const targetCode = subjectCode ? getCode(subjectCode) : '';
+    const isAllMode = !subjectCode || subjectCode === 'ALL' || subjectCode.trim() === '';
+    
+    let monthPresent = 0;
+    let monthTotal = 0;
+    let monthAbsent = 0;
 
+    for (const r of records) {
+      const parts = r.date.split('-');
+      if (parts.length === 3) {
+        const y = parseInt(parts[0], 10);
+        const m = parseInt(parts[1], 10) - 1;
+        if (y === currentYear && m === currentMonth) {
+          if (isAllMode || getCode(r.subject) === targetCode) {
+            monthTotal++;
+            if (r.status === 'present') {
+              monthPresent++;
+            } else {
+              monthAbsent++;
+            }
+          }
+        }
+      }
+    }
+
+    const monthPct = monthTotal > 0 ? Math.round((monthPresent / monthTotal) * 100) : 0;
+    return {
+      present: monthPresent,
+      absent: monthAbsent,
+      total: monthTotal,
+      percentage: monthPct,
+    };
+  }, [records, subjectCode, currentYear, currentMonth]);
+
+  // Swipe gesture setup for horizontal transitions
+  const calendarPanResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => false,
+      onMoveShouldSetPanResponder: (_, gestureState) => {
+        return Math.abs(gestureState.dx) > 15 && Math.abs(gestureState.dy) < 10;
+      },
+      onPanResponderRelease: (_, gestureState) => {
+        if (gestureState.dx < -50) {
+          if (hasNextData) {
+            Haptics.selectionAsync().catch(() => {});
+            goNext();
+          }
+        } else if (gestureState.dx > 50) {
+          if (hasPrevData) {
+            Haptics.selectionAsync().catch(() => {});
+            goPrev();
+          }
+        }
+      },
+    })
+  ).current;
+
+  const daysInMonth = getDaysInMonth(currentYear, currentMonth);
+  const firstDay = getFirstDayOfWeek(currentYear, currentMonth);
 
   // Build grid cells
   const cells: (number | null)[] = [];
   for (let i = 0; i < firstDay; i++) cells.push(null);
   for (let d = 1; d <= daysInMonth; d++) cells.push(d);
-  // Pad to fill last row
   while (cells.length % 7 !== 0) cells.push(null);
 
   return (
     <Animated.View layout={LinearTransition.springify().damping(15)} style={styles.container}>
       {/* Month header */}
       <View style={styles.monthHeader}>
-        <TouchableOpacity onPress={goPrev} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+        <TouchableOpacity
+          disabled={!hasPrevData}
+          onPress={goPrev}
+          style={{ opacity: hasPrevData ? 1 : 0.3 }}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+        >
           <Ionicons name="chevron-back" size={20} color={colors.text} />
         </TouchableOpacity>
         <Text style={[styles.monthTitle, { color: colors.text }]}>
           {MONTH_NAMES[currentMonth]} {currentYear}
         </Text>
-        <TouchableOpacity onPress={goNext} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+        <TouchableOpacity
+          disabled={!hasNextData}
+          onPress={goNext}
+          style={{ opacity: hasNextData ? 1 : 0.3 }}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+        >
           <Ionicons name="chevron-forward" size={20} color={colors.text} />
         </TouchableOpacity>
       </View>
@@ -208,55 +305,79 @@ export default function AttendanceCalendar({ records, subjectCode, colors }: Pro
         ))}
       </View>
 
-      {/* Calendar grid */}
-      {Array.from({ length: cells.length / 7 }, (_, rowIdx) => (
-        <View key={rowIdx} style={styles.weekRow}>
-          {cells.slice(rowIdx * 7, rowIdx * 7 + 7).map((day, colIdx) => {
-            if (day === null) {
-              return <View key={colIdx} style={styles.dayCell} />;
-            }
+      {/* Calendar grid wrapped with horizontal pan gestures */}
+      <View {...calendarPanResponder.panHandlers}>
+        {Array.from({ length: cells.length / 7 }, (_, rowIdx) => (
+          <View key={rowIdx} style={styles.weekRow}>
+            {cells.slice(rowIdx * 7, rowIdx * 7 + 7).map((day, colIdx) => {
+              if (day === null) {
+                return <View key={colIdx} style={styles.dayCell} />;
+              }
 
-            const dateStr = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-            const status = dayStatusMap[dateStr];
-            const isToday = dateStr === todayStr;
-            const isSelected = selectedDate === dateStr;
+              const dateStr = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+              const status = dayStatusMap[dateStr];
+              const isToday = dateStr === todayStr;
+              const isSelected = selectedDate === dateStr;
 
-            return (
-              <TouchableOpacity
-                key={colIdx}
-                style={styles.dayCell}
-                onPress={() => handleDatePress(dateStr)}
-                activeOpacity={0.7}
-              >
-                <View style={[
-                  styles.dayNumber,
-                  isToday && { borderWidth: 1.5, borderColor: colors.primary, borderRadius: Roundness.full },
-                  isSelected && { backgroundColor: colors.primary, borderRadius: Roundness.full, borderWidth: 0 }
-                ]}>
-                  <Text style={[
-                    styles.dayText,
-                    { color: colors.text },
-                    isToday && { color: colors.primary, fontFamily: Fonts.bodyBold },
-                    isSelected && { color: colors.onPrimary || '#FFFFFF', fontFamily: Fonts.bodyBold }
+              // Construct accessibility tags
+              const accessibilityStatus = status ? `, ${status}` : '';
+              const accessibilityLabel = `${day} ${MONTH_NAMES[currentMonth]} ${currentYear}${accessibilityStatus}`;
+
+              return (
+                <TouchableOpacity
+                  key={colIdx}
+                  accessibilityRole="button"
+                  accessibilityLabel={accessibilityLabel}
+                  accessibilityState={{ selected: isSelected }}
+                  style={styles.dayCell}
+                  onPress={() => handleDatePress(dateStr)}
+                  activeOpacity={0.7}
+                >
+                  <View style={[
+                    styles.dayNumber,
+                    isToday && { borderWidth: 1.5, borderColor: colors.primary, borderRadius: Roundness.full },
+                    isSelected && { backgroundColor: colors.primary, borderRadius: Roundness.full, borderWidth: 0 },
+                    (!isSelected && status === 'present') && { backgroundColor: `${colors.success}14`, borderRadius: Roundness.full },
+                    (!isSelected && status === 'absent') && { backgroundColor: `${colors.danger}14`, borderRadius: Roundness.full },
+                    (!isSelected && status === 'partial') && { backgroundColor: `${colors.warning}14`, borderRadius: Roundness.full }
                   ]}>
-                    {day}
-                  </Text>
-                </View>
-                {/* Dot indicator */}
-                {status === 'present' && (
-                  <View style={[styles.dot, { backgroundColor: colors.success }]} />
-                )}
-                {status === 'absent' && (
-                  <View style={[styles.dot, { backgroundColor: colors.danger }]} />
-                )}
-                {status === 'partial' && (
-                  <View style={[styles.dot, { backgroundColor: colors.warning }]} />
-                )}
-              </TouchableOpacity>
-            );
-          })}
+                    <Text style={[
+                      styles.dayText,
+                      { color: colors.text },
+                      isToday && { color: colors.primary, fontFamily: Fonts.bodyBold },
+                      isSelected && { color: '#FFFFFF', fontFamily: Fonts.bodyBold },
+                      (!isSelected && status === 'present') && { color: colors.success },
+                      (!isSelected && status === 'absent') && { color: colors.danger },
+                      (!isSelected && status === 'partial') && { color: colors.warning }
+                    ]}>
+                      {day}
+                    </Text>
+                  </View>
+                  {/* Dot indicator */}
+                  {status === 'present' && (
+                    <View style={[styles.dot, { backgroundColor: colors.success }]} />
+                  )}
+                  {status === 'absent' && (
+                    <View style={[styles.dot, { backgroundColor: colors.danger }]} />
+                  )}
+                  {status === 'partial' && (
+                    <View style={[styles.dot, { backgroundColor: colors.warning }]} />
+                  )}
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        ))}
+      </View>
+
+      {/* Monthly Summary line */}
+      {monthlyStats.total > 0 && (
+        <View style={[styles.monthlySummary, { backgroundColor: `${colors.primary}0D`, borderColor: colors.outlineVariant }]}>
+          <Text style={[styles.monthlySummaryText, { color: colors.textSecondary }]}>
+            This month: <Text style={{ fontFamily: Fonts.bodyBold, color: colors.text }}>{monthlyStats.present}</Text> present · <Text style={{ fontFamily: Fonts.bodyBold, color: colors.text }}>{monthlyStats.absent}</Text> absent · <Text style={{ fontFamily: Fonts.bodyBold, color: colors.text }}>{monthlyStats.percentage}%</Text>
+          </Text>
         </View>
-      ))}
+      )}
 
       {/* Legend */}
       <View style={styles.legend}>
@@ -481,6 +602,19 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.two,
   },
   emptyDetailText: {
+    fontFamily: Fonts.body,
+    fontSize: 12,
+    textAlign: 'center',
+  },
+  monthlySummary: {
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: Roundness.default,
+    alignSelf: 'center',
+    marginTop: Spacing.two,
+    borderWidth: 0.5,
+  },
+  monthlySummaryText: {
     fontFamily: Fonts.body,
     fontSize: 12,
     textAlign: 'center',

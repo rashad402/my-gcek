@@ -76,6 +76,9 @@ export const Colors = {
 } as const;
 
 export type ThemeColor = keyof typeof Colors.light;
+export type ThemeColors = {
+  readonly [K in keyof typeof Colors.light]: string;
+};
 
 export const Fonts = {
   headline: 'NotoSerif_400Regular',

@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState, useId } from 'react';
 import Svg, {
   Circle,
   Defs,
@@ -12,59 +12,68 @@ import {
   Animated,
   Easing,
 } from 'react-native';
-import { Fonts } from '@/constants/theme';
+import { Fonts, ThemeColors } from '@/constants/theme';
 
 interface Props {
   percentage: number;
   size?: number;
   strokeWidth?: number;
   variant: 'success' | 'warning' | 'danger';
+  colors: ThemeColors;
 }
 
 const AnimatedCircle = Animated.createAnimatedComponent(Circle);
-
-function getGradientColors(
-  variant: 'success' | 'warning' | 'danger'
-) {
-  switch (variant) {
-    case 'success':
-      return ['#4ade80', '#16a34a'];
-
-    case 'warning':
-      return ['#fde047', '#eab308'];
-
-    case 'danger':
-      return ['#fb7185', '#ef4444'];
-  }
-}
 
 export default function AttendanceRing({
   percentage,
   size = 58,
   strokeWidth = 5,
   variant,
+  colors,
 }: Props) {
   const radius = (size - strokeWidth) / 2;
   const circumference = 2 * Math.PI * radius;
 
-  const [startColor, endColor] = getGradientColors(variant);
+  // Use a unique ID per instance to avoid gradient ID collisions
+  const uid = useId();
+  const cleanUid = uid.replace(/:/g, '');
+  const gradId = `grad-${variant}-${cleanUid}`;
 
+  // Resolve colors dynamically from the active theme colors
   const textColor =
     variant === 'success'
-      ? '#22c55e'
+      ? colors.success
       : variant === 'warning'
-      ? '#eab308'
-      : '#ef4444';
+      ? colors.warning
+      : colors.danger;
 
+  const startColor = textColor;
+  const endColor =
+    variant === 'success'
+      ? `${colors.success}CC`
+      : variant === 'warning'
+      ? `${colors.warning}CC`
+      : `${colors.danger}CC`;
+
+  const [displayPct, setDisplayPct] = useState(0);
   const animatedValue = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
+    // Listen to the animated value to drive a local state that animates the count-up text
+    const listenerId = animatedValue.addListener(({ value }) => {
+      setDisplayPct(Math.round(value));
+    });
+
     Animated.timing(animatedValue, {
       toValue: Math.max(0, Math.min(100, percentage)),
       duration: 900,
       easing: Easing.out(Easing.ease),
       useNativeDriver: false,
     }).start();
+
+    return () => {
+      animatedValue.removeListener(listenerId);
+    };
   }, [percentage, animatedValue]);
 
   const animatedStroke = animatedValue.interpolate({
@@ -72,10 +81,11 @@ export default function AttendanceRing({
     outputRange: [circumference, 0],
   });
 
-  const gradId = `grad-${variant}`;
-
   return (
     <View
+      accessible={true}
+      accessibilityRole="image"
+      accessibilityLabel={`${percentage} percent attendance`}
       style={{
         width: size,
         height: size,
@@ -83,7 +93,7 @@ export default function AttendanceRing({
         alignItems: 'center',
       }}
     >
-      <Svg width={size} height={size}>
+      <Svg width={size} height={size} accessible={false}>
         <Defs>
           <LinearGradient
             id={gradId}
@@ -130,6 +140,7 @@ export default function AttendanceRing({
       </Svg>
 
       <Text
+        accessible={false}
         style={[
           styles.text,
           {
@@ -137,7 +148,7 @@ export default function AttendanceRing({
           },
         ]}
       >
-        {percentage}%
+        {displayPct}%
       </Text>
     </View>
   );
