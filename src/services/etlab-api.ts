@@ -11,6 +11,7 @@
  */
 
 import { Platform } from 'react-native';
+import CookieManager from '@react-native-cookies/cookies';
 import { parseAttendanceFormOptions } from './etlab-parser';
 
 const BASE_URL = 'https://gcek.etlab.in';
@@ -77,13 +78,32 @@ function extractStudentId(html: string): string | null {
 
 // ─── Login error extraction ─────────────────────────────────────────────────
 
+function sanitizeErrorText(rawText: string): string {
+  // 1. Strip HTML tags
+  let cleaned = rawText.replace(/<[^>]+>/g, '');
+  
+  // 2. Decode common HTML entities
+  cleaned = cleaned
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#039;/g, "'")
+    .replace(/&nbsp;/g, ' ');
+
+  // 3. Strip control characters (ASCII 0-31, 127) to prevent malicious injection
+  cleaned = cleaned.replace(/[\x00-\x1F\x7F]/g, '');
+
+  return cleaned.trim();
+}
+
 function extractLoginError(html: string): string {
   // Yii2 error summary
   const errorMatch = html.match(
     /<div[^>]*class\s*=\s*["'][^"']*errorMessage[^"']*["'][^>]*>([\s\S]*?)<\/div>/i
   );
   if (errorMatch) {
-    return errorMatch[1].replace(/<[^>]+>/g, '').trim();
+    return sanitizeErrorText(errorMatch[1]);
   }
 
   // Yii2 error summary list
@@ -91,7 +111,7 @@ function extractLoginError(html: string): string {
     /<div[^>]*class\s*=\s*["'][^"']*error-summary[^"']*["'][^>]*>([\s\S]*?)<\/div>/i
   );
   if (summaryMatch) {
-    return summaryMatch[1].replace(/<[^>]+>/g, '').trim();
+    return sanitizeErrorText(summaryMatch[1]);
   }
 
   // Help-block-error
@@ -99,7 +119,7 @@ function extractLoginError(html: string): string {
     /<[^>]*class\s*=\s*["'][^"']*help-block-error[^"']*["'][^>]*>([\s\S]*?)<\/[^>]+>/i
   );
   if (helpMatch) {
-    const text = helpMatch[1].replace(/<[^>]+>/g, '').trim();
+    const text = sanitizeErrorText(helpMatch[1]);
     if (text) return text;
   }
 
@@ -148,7 +168,9 @@ async function fetchWithTimeout(
       
       if ((isTimeout || isNetworkError) && attempt < retries) {
         attempt++;
-        console.warn(`[Network] Attempt ${attempt} failed for URL: ${url}. Retrying in ${500 * attempt}ms...`);
+        if (__DEV__) {
+          console.warn(`[Network] Attempt ${attempt} failed for URL: ${url}. Retrying in ${500 * attempt}ms...`);
+        }
         await sleep(500 * attempt);
         continue;
       }
@@ -163,8 +185,8 @@ async function waitForSessionReady(
   delayMs = 250,
 ): Promise<boolean> {
   for (let i = 0; i < attempts; i++) {
-    const ok = await validateSession();
-    if (ok) return true;
+    const status = await validateSession();
+    if (status === 'valid') return true;
     if (i < attempts - 1) {
       await sleep(delayMs);
     }
@@ -194,7 +216,16 @@ export async function loginToEtlab(
 
   const loginPageHtml = await loginPageRes.text();
   const csrfToken = extractCsrfToken(loginPageHtml);
-  const csrfFieldName = csrfToken ? extractCsrfFieldName(loginPageHtml) : '';
+  
+  if (!csrfToken) {
+    return {
+      success: false,
+      studentId: '',
+      error: 'Could not extract CSRF security token from login page. Please check your network connection or try again.',
+    };
+  }
+  
+  const csrfFieldName = extractCsrfFieldName(loginPageHtml);
 
   // Introduce a small delay on iOS to allow the background cookie thread
   // to finish persisting the CSRF cookie to the native cookie jar.
@@ -204,9 +235,7 @@ export async function loginToEtlab(
 
   // Step 2: POST credentials
   const formBody = new URLSearchParams();
-  if (csrfToken && csrfFieldName) {
-    formBody.append(csrfFieldName, csrfToken);
-  }
+  formBody.append(csrfFieldName, csrfToken);
   formBody.append('LoginForm[username]', username);
   formBody.append('LoginForm[password]', password);
   formBody.append('LoginForm[rememberMe]', rememberMe ? '1' : '0');
@@ -222,7 +251,7 @@ export async function loginToEtlab(
     },
     body: formBody.toString(),
     credentials: 'include',
-  }, 15000, 2);
+  }, 15000, 0);
 
   const responseHtml = await loginRes.text();
 
@@ -272,21 +301,29 @@ export async function loginToEtlab(
 
 // ─── Session validation ─────────────────────────────────────────────────────
 
+export type SessionStatus = 'valid' | 'expired' | 'unknown';
+
 /**
  * Check whether session cookies are still valid by making a lightweight
  * request to a protected page. If the server redirects to the login page,
  * the session has expired.
  */
-export async function validateSession(): Promise<boolean> {
+export async function validateSession(): Promise<SessionStatus> {
   try {
     const res = await fetchPage(`${BASE_URL}/ktuacademics/student/results`);
-    // If the session has not explicitly expired (even if the server returns a temporary 5xx status),
-    // we consider the session alive to prevent outage-induced automatic logouts.
-    return !res.sessionExpired;
+    if (res.sessionExpired) {
+      return 'expired';
+    }
+    if (!res.ok) {
+      return 'unknown';
+    }
+    return 'valid';
   } catch (err) {
-    console.warn('[Session] validation network/unexpected error:', err);
-    // Network error — treat as alive to allow offline cache usage
-    return true;
+    if (__DEV__) {
+      console.warn('[Session] validation network/unexpected error:', err);
+    }
+    // Network error — treat as unknown to allow offline cache usage but fail-closed for privileged actions
+    return 'unknown';
   }
 }
 
@@ -315,28 +352,60 @@ export async function fetchPage(url: string): Promise<FetchPageResult> {
     if (location.includes('login') || location === '/' || location === `${BASE_URL}/`) {
       return { ok: false, html: '', sessionExpired: true };
     }
-    // Non-login redirect — follow it
-    const absUrl = location.startsWith('http') ? location : `${BASE_URL}${location}`;
-    const followRes = await fetchWithTimeout(absUrl, {
+    
+    // Non-login redirect — validate host & scheme before following
+    let absUrl: URL;
+    try {
+      absUrl = new URL(location, BASE_URL);
+    } catch {
+      if (__DEV__) {
+        console.warn(`[Security] Invalid redirect location: ${location}`);
+      }
+      return { ok: false, html: '', sessionExpired: false };
+    }
+
+    if (absUrl.protocol !== 'https:' || absUrl.host !== 'gcek.etlab.in') {
+      if (__DEV__) {
+        console.warn(`[Security] Blocked non-HTTPS or external redirect to: ${absUrl.toString()}`);
+      }
+      return { ok: false, html: '', sessionExpired: false };
+    }
+
+    const followRes = await fetchWithTimeout(absUrl.toString(), {
       headers: { 'User-Agent': 'MyGCEK/1.0' },
       credentials: 'include',
     }, 12000, 2);
+    
+    if (!followRes.ok) {
+      return { ok: false, html: '', sessionExpired: false };
+    }
+
     const followHtml = await followRes.text();
-    if (followHtml.includes('LoginForm[username]') || followHtml.includes('LoginForm[password]')) {
+    if (
+      followHtml.includes('LoginForm[username]') || 
+      followHtml.includes('LoginForm[password]') ||
+      followHtml.includes('id="loginForm"')
+    ) {
       return { ok: false, html: '', sessionExpired: true };
     }
     return { ok: true, html: followHtml, sessionExpired: false };
   }
 
   if (!res.ok) {
-    console.warn(`[Auth] Fetch failed for URL: ${url} with status: ${res.status}`);
+    if (__DEV__) {
+      console.warn(`[Auth] Fetch failed for URL: ${url} with status: ${res.status}`);
+    }
     return { ok: false, html: '', sessionExpired: false };
   }
 
   const html = await res.text();
 
   // Double-check: if the response HTML is actually the login page
-  if (html.includes('LoginForm[username]') || html.includes('LoginForm[password]')) {
+  if (
+    html.includes('LoginForm[username]') || 
+    html.includes('LoginForm[password]') ||
+    html.includes('id="loginForm"')
+  ) {
     return { ok: false, html: '', sessionExpired: true };
   }
 
@@ -465,7 +534,7 @@ export async function fetchAttendanceHistory(): Promise<FetchAttendanceHistoryRe
         },
         body: formBody.toString(),
         credentials: 'include',
-      }, 12000, 2);
+      }, 12000, 0);
 
       if (postRes.status >= 300 && postRes.status < 400) {
         const location = postRes.headers.get('location') || '';
@@ -475,19 +544,27 @@ export async function fetchAttendanceHistory(): Promise<FetchAttendanceHistoryRe
       }
 
       if (!postRes.ok) {
-        console.warn(`[API] POST failed for month=${my.month}, year=${my.year} with status: ${postRes.status}`);
+        if (__DEV__) {
+          console.warn(`[API] POST failed for month=${my.month}, year=${my.year} with status: ${postRes.status}`);
+        }
         continue;
       }
 
       const postHtml = await postRes.text();
-      if (postHtml.includes('LoginForm[username]') || postHtml.includes('LoginForm[password]')) {
+      if (
+        postHtml.includes('LoginForm[username]') || 
+        postHtml.includes('LoginForm[password]') ||
+        postHtml.includes('id="loginForm"')
+      ) {
         return { ok: false, htmls: [], sessionExpired: true };
       }
 
       htmls.push(postHtml);
     }
   } catch (err) {
-    console.error('[API] Error fetching other months of attendance history:', err);
+    if (__DEV__) {
+      console.error('[API] Error fetching other months of attendance history:', err);
+    }
   }
 
   return { ok: true, htmls, sessionExpired: false };
@@ -522,6 +599,16 @@ export async function logoutFromEtlab(): Promise<void> {
       credentials: 'include',
     }, 8000, 1);
   } catch (err) {
-    console.warn('[Auth] Logout network request failed:', err);
+    if (__DEV__) {
+      console.warn('[Auth] Logout network request failed:', err);
+    }
+  } finally {
+    try {
+      await CookieManager.clearAll();
+    } catch (cookieErr) {
+      if (__DEV__) {
+        console.warn('[Auth] Failed to clear native cookie jar:', cookieErr);
+      }
+    }
   }
 }

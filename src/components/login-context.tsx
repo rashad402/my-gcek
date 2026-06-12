@@ -58,9 +58,9 @@ export function LoginProvider({ children }: { children: ReactNode }) {
 
         if (savedLoggedIn === 'true' && savedUsername) {
           // Validate the saved session is still alive
-          const valid = await validateSession();
-          if (valid) {
-            // Only load cache after session is verified valid
+          const status = await validateSession();
+          if (status === 'valid' || status === 'unknown') {
+            // Only load cache after session is verified valid or unknown (offline mode)
             await dataCache.loadFromStorage();
             setIsLoggedIn(true);
             setUsername(savedUsername);
@@ -152,8 +152,8 @@ export function LoginProvider({ children }: { children: ReactNode }) {
   // ── Session expiry handler ──────────────────────────────────────────
   const handleSessionExpired = async () => {
     if (!isLoggedIn) return;
-    const valid = await validateSession();
-    if (!valid) {
+    const status = await validateSession();
+    if (status === 'expired') {
       console.log('[Auth] Session expired and invalidated. Prompting user for login.');
       Alert.alert('Session Expired', 'Please log in again.', [
         { text: 'OK', onPress: () => logout() },
