@@ -10,11 +10,26 @@
  * NEVER stored or returned. Only session cookies leave this module.
  */
 
-import { Platform } from 'react-native';
-import CookieManager from '@react-native-cookies/cookies';
+import { Platform, NativeModules } from 'react-native';
 import { parseAttendanceFormOptions } from './etlab-parser';
 
 const BASE_URL = 'https://gcek.etlab.in';
+
+const hasNativeCookieManager = !!(
+  NativeModules.RNCookieManagerIOS ||
+  NativeModules.RNCookieManagerAndroid ||
+  NativeModules.RNCookieManager
+);
+
+let CookieManager: any = null;
+if (hasNativeCookieManager) {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    CookieManager = require('@react-native-cookies/cookies').default;
+  } catch {
+    // Fail silently
+  }
+}
 
 
 
@@ -603,11 +618,13 @@ export async function logoutFromEtlab(): Promise<void> {
       console.warn('[Auth] Logout network request failed:', err);
     }
   } finally {
-    try {
-      await CookieManager.clearAll();
-    } catch (cookieErr) {
-      if (__DEV__) {
-        console.warn('[Auth] Failed to clear native cookie jar:', cookieErr);
+    if (CookieManager) {
+      try {
+        await CookieManager.clearAll();
+      } catch (cookieErr) {
+        if (__DEV__) {
+          console.warn('[Auth] Failed to clear native cookie jar:', cookieErr);
+        }
       }
     }
   }
