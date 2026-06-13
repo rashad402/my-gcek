@@ -107,11 +107,8 @@ export default function TimetableModal({
   // Setup pan responder for gesture-dismissing the sheet downwards
   const panResponder = React.useRef(
     PanResponder.create({
-      onStartShouldSetPanResponder: () => false,
-      onMoveShouldSetPanResponder: (_, gestureState) => {
-        // Intercept touch movements only when swiping downwards
-        return gestureState.dy > 5 && Math.abs(gestureState.dx) < 10;
-      },
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
       onPanResponderMove: (_, gestureState) => {
         if (gestureState.dy > 0) {
           offsetY.value = gestureState.dy;
@@ -272,28 +269,32 @@ export default function TimetableModal({
           animatedSheetStyle
         ]}
       >
-        <View {...panResponder.panHandlers}>
+        {/* Close Button (interactive, outside drag zone) */}
+        <TouchableOpacity 
+          accessibilityRole="button"
+          accessibilityLabel="Close timetable modal"
+          onPress={onClose} 
+          style={styles.closeButtonAbsolute}
+          hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+        >
+          <Ionicons name="close" size={24} color={colors.textSecondary} />
+        </TouchableOpacity>
+
+        {/* Swipe-to-dismiss Drag Zone */}
+        <View {...panResponder.panHandlers} style={styles.dragZone}>
           {/* Drag handle */}
           <View style={styles.handleBar}>
             <View style={[styles.handle, { backgroundColor: colors.outlineVariant }]} />
           </View>
 
           {/* Header */}
-          <View style={styles.header}>
+          <View style={styles.headerTextContainer}>
             <View style={styles.headerTitleRow}>
               <Ionicons name="calendar-outline" size={22} color={colors.text} style={{ marginRight: 8 }} />
               <Text style={[styles.sheetTitle, { color: colors.text }]}>
                 Weekly Timetable
               </Text>
             </View>
-            <TouchableOpacity 
-              accessibilityRole="button"
-              accessibilityLabel="Close timetable modal"
-              onPress={onClose} 
-              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-            >
-              <Ionicons name="close" size={24} color={colors.textSecondary} />
-            </TouchableOpacity>
           </View>
         </View>
 
@@ -538,12 +539,20 @@ const styles = StyleSheet.create({
     height: 4,
     borderRadius: Roundness.full,
   },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+  closeButtonAbsolute: {
+    position: 'absolute',
+    top: 14,
+    right: 14,
+    zIndex: 10,
+    padding: Spacing.one,
+  },
+  dragZone: {
+    width: '100%',
+  },
+  headerTextContainer: {
     paddingHorizontal: Spacing.four,
     paddingBottom: Spacing.two,
+    paddingRight: 56, // Avoid absolute close button
   },
   headerTitleRow: {
     flexDirection: 'row',

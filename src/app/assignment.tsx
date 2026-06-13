@@ -209,6 +209,7 @@ const styles = StyleSheet.create({
   },
   scrollContainer: {
     padding: Spacing.four,
+    paddingBottom: 96,
     gap: Spacing.four,
   },
   placeholderCard: {

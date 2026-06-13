@@ -144,10 +144,8 @@ export default function AttendanceHistoryModal({
 
   const panResponder = useRef(
     PanResponder.create({
-      onStartShouldSetPanResponder: () => false,
-      onMoveShouldSetPanResponder: (_, gestureState) => {
-        return gestureState.dy > 5 && Math.abs(gestureState.dx) < 10;
-      },
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
       onPanResponderMove: (_, gestureState) => {
         if (gestureState.dy > 0) {
           offsetY.value = gestureState.dy;
@@ -179,43 +177,44 @@ export default function AttendanceHistoryModal({
       </TouchableWithoutFeedback>
 
       <Animated.View style={[styles.sheet, { backgroundColor: colors.surfaceLowest }, animatedSheetStyle]}>
+        {/* Close Button (interactive, outside drag zone) */}
+        <TouchableOpacity
+          accessibilityRole="button"
+          accessibilityLabel="Close history modal"
+          onPress={handleClose}
+          style={styles.closeButtonAbsolute}
+          hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+        >
+          <Ionicons name="close" size={24} color={colors.textSecondary} />
+        </TouchableOpacity>
+
         {/* Swipe-to-dismiss Drag Zone */}
-        <View {...panResponder.panHandlers}>
+        <View {...panResponder.panHandlers} style={styles.dragZone}>
           {/* Drag handle */}
           <View style={styles.handleBar}>
             <View style={[styles.handle, { backgroundColor: colors.outlineVariant }]} />
           </View>
 
           {/* Header */}
-          <View style={styles.header}>
-            <View style={{ flex: 1 }}>
-              <Text style={[styles.sheetTitle, { color: colors.text }]} numberOfLines={2}>
-                {displayName}
-              </Text>
-              {professor ? (
-                <View style={styles.profRow}>
-                  <Ionicons name="person-outline" size={14} color={colors.textSecondary} style={{ marginRight: 4 }} />
-                  <Text style={[styles.sheetSubtitle, { color: colors.textSecondary }]}>
-                    {professor}
-                  </Text>
-                </View>
-              ) : (
-                <View style={styles.profRow}>
-                  <Ionicons name="book-outline" size={14} color={colors.textSecondary} style={{ marginRight: 4 }} />
-                  <Text style={[styles.sheetSubtitle, { color: colors.textSecondary }]}>
-                    {subject}
-                  </Text>
-                </View>
-              )}
-            </View>
-            <TouchableOpacity
-              accessibilityRole="button"
-              accessibilityLabel="Close history modal"
-              onPress={handleClose}
-              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-            >
-              <Ionicons name="close" size={24} color={colors.textSecondary} />
-            </TouchableOpacity>
+          <View style={styles.headerTextContainer}>
+            <Text style={[styles.sheetTitle, { color: colors.text }]} numberOfLines={2}>
+              {displayName}
+            </Text>
+            {professor ? (
+              <View style={styles.profRow}>
+                <Ionicons name="person-outline" size={14} color={colors.textSecondary} style={{ marginRight: 4 }} />
+                <Text style={[styles.sheetSubtitle, { color: colors.textSecondary }]}>
+                  {professor}
+                </Text>
+              </View>
+            ) : (
+              <View style={styles.profRow}>
+                <Ionicons name="book-outline" size={14} color={colors.textSecondary} style={{ marginRight: 4 }} />
+                <Text style={[styles.sheetSubtitle, { color: colors.textSecondary }]}>
+                  {subject}
+                </Text>
+              </View>
+            )}
           </View>
         </View>
 
@@ -421,13 +420,20 @@ const styles = StyleSheet.create({
     paddingBottom: Spacing.six,
     gap: Spacing.three,
   },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    gap: Spacing.two,
+  closeButtonAbsolute: {
+    position: 'absolute',
+    top: 14,
+    right: 14,
+    zIndex: 10,
+    padding: Spacing.one,
+  },
+  dragZone: {
+    width: '100%',
+  },
+  headerTextContainer: {
     paddingHorizontal: Spacing.four,
     paddingBottom: Spacing.one,
+    paddingRight: 56, // Avoid absolute close button
   },
   sheetTitle: {
     fontFamily: Fonts.bodyBold,

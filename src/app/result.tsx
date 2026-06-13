@@ -282,6 +282,7 @@ const styles = StyleSheet.create({
   /* ── Scroll Container ── */
   scrollContainer: {
     padding: Spacing.four,
+    paddingBottom: 96,
     gap: Spacing.three,
   },
 
