@@ -1,9 +1,10 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import {
   StyleSheet,
   View,
   Text,
   ScrollView,
+  Pressable,
   TouchableOpacity,
   ActivityIndicator,
   RefreshControl,
@@ -13,13 +14,45 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Colors, Fonts, Spacing, Roundness } from '@/constants/theme';
-import { Ionicons } from '@expo/vector-icons';
 import { ProtectedScreen } from '@/components/protected-screen';
 import { ProfileButton } from '@/components/profile-button';
 import { useLogin } from '@/components/login-context';
 import { fetchSurveys } from '@/services/etlab-api';
 import { parseSurveys, Survey } from '@/services/etlab-parser';
 import { dataCache } from '@/services/data-cache';
+import * as Haptics from 'expo-haptics';
+import Animated, { 
+  FadeInDown, 
+  useSharedValue, 
+  useAnimatedStyle, 
+  withSpring 
+} from 'react-native-reanimated';
+import { 
+  ClipboardList, 
+  Clock3, 
+  Info, 
+  ExternalLink 
+} from 'lucide-react-native';
+
+const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
+
+/**
+ * Utility function to parse system survey titles into clean readable names and course codes.
+ */
+function getCleanTitleAndCode(rawTitle: string) {
+  if (rawTitle.includes(' : ')) {
+    const parts = rawTitle.split(' : ');
+    const codePart = parts[0].trim();
+    const cleanTitle = parts[1].trim();
+
+    // Try to extract course code (e.g. CST362) from codePart
+    const codeMatch = codePart.match(/[A-Z]{2,5}-\d{3,4}/) || codePart.match(/[A-Z]{2,5}\d{3,4}/);
+    const displayCode = codeMatch ? codeMatch[0] : codePart;
+
+    return { title: cleanTitle, code: displayCode };
+  }
+  return { title: rawTitle, code: '' };
+}
 
 interface SurveyCardProps {
   survey: Survey;
@@ -27,7 +60,10 @@ interface SurveyCardProps {
 }
 
 function SurveyCard({ survey, colors }: SurveyCardProps) {
-  const { title, description, deadline, status, url } = survey;
+  const { title: rawTitle, description, deadline, status, url } = survey;
+  const { title, code } = getCleanTitleAndCode(rawTitle);
+  const colorScheme = useColorScheme();
+  const scheme = colorScheme === 'dark' ? 'dark' : 'light';
 
   // Determine badge colors based on status
   let badgeBg = 'rgba(90, 95, 99, 0.08)';
@@ -35,47 +71,120 @@ function SurveyCard({ survey, colors }: SurveyCardProps) {
   let label = 'Unknown';
 
   if (status === 'completed') {
-    badgeBg = 'rgba(40, 167, 69, 0.08)';
-    badgeText = '#28a745';
+    badgeBg = `${colors.success}15`;
+    badgeText = colors.success;
     label = 'Completed';
   } else if (status === 'pending') {
-    badgeBg = 'rgba(217, 119, 6, 0.08)';
-    badgeText = '#d97706'; // orange
+    badgeBg = `${colors.warning}15`;
+    badgeText = colors.warning;
     label = 'Pending';
   } else if (status === 'new') {
-    badgeBg = 'rgba(9, 76, 178, 0.08)';
+    badgeBg = `${colors.primary}15`;
     badgeText = colors.primary;
     label = 'New';
   }
 
   const handlePress = () => {
     if (url) {
+      Haptics.selectionAsync().catch(() => {});
       Linking.openURL(url).catch(() => {
         Alert.alert('Error', 'Unable to open survey link.');
       });
     }
   };
 
+  // Reanimated spring values for micro-interactions
+  const scale = useSharedValue(1);
+  const opacity = useSharedValue(1);
+  const shadow = useSharedValue(3);
+
+  const handlePressIn = () => {
+    if (url) {
+      scale.value = withSpring(0.985, { damping: 15, stiffness: 300 });
+      opacity.value = withSpring(0.96, { damping: 15, stiffness: 300 });
+      shadow.value = withSpring(4, { damping: 15, stiffness: 300 });
+    }
+  };
+
+  const handlePressOut = () => {
+    if (url) {
+      scale.value = withSpring(1, { damping: 15, stiffness: 300 });
+      opacity.value = withSpring(1, { damping: 15, stiffness: 300 });
+      shadow.value = withSpring(3, { damping: 15, stiffness: 300 });
+    }
+  };
+
+  const animatedStyle = useAnimatedStyle(() => {
+    return {
+      transform: [{ scale: scale.value }],
+      opacity: opacity.value,
+      shadowRadius: shadow.value * 4,
+      elevation: shadow.value,
+    };
+  });
+
   return (
-    <TouchableOpacity
-      style={[styles.surveyCard, { backgroundColor: colors.surfaceLowest, borderColor: colors.outlineVariant }]}
+    <AnimatedPressable
+      onPressIn={handlePressIn}
+      onPressOut={handlePressOut}
+      style={[
+        styles.surveyCard,
+        {
+          backgroundColor: scheme === 'dark' ? colors.surfaceContainer : colors.surfaceLowest,
+          borderColor: colors.ghostBorder,
+          borderWidth: 1,
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: 6 },
+          shadowOpacity: scheme === 'dark' ? 0.18 : 0.05,
+        },
+        animatedStyle
+      ]}
       onPress={url ? handlePress : undefined}
-      activeOpacity={url ? 0.7 : 1}
       disabled={!url}
     >
       <View style={styles.surveyHeader}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.one, flex: 1 }}>
-          <Ionicons name="checkbox-outline" size={16} color={colors.primary} />
-          <Text style={[styles.surveyTitle, { color: colors.text }]}>{title}</Text>
+        <View style={styles.titleRow}>
+          {/* Circular Tinted Icon Container */}
+          <View style={[styles.iconBadge, { backgroundColor: `${colors.primary}12` }]}>
+            <ClipboardList size={18} color={colors.primary} strokeWidth={2} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.surveyTitle, { color: colors.text }]} numberOfLines={2}>
+              {title}
+            </Text>
+            {code ? (
+              <Text style={[styles.surveyCode, { color: colors.textSecondary }]}>
+                {code}
+              </Text>
+            ) : null}
+          </View>
         </View>
         <View style={[styles.statusBadge, { backgroundColor: badgeBg }]}>
+          <View style={[styles.statusDot, { backgroundColor: badgeText }]} />
           <Text style={[styles.statusText, { color: badgeText }]}>{label}</Text>
         </View>
       </View>
-      {description ? <Text style={[styles.surveyDesc, { color: colors.textSecondary }]}>{description}</Text> : null}
-      {deadline ? <Text style={[styles.surveyMeta, { color: colors.textSecondary }]}>Deadline: {deadline}</Text> : null}
-      {url ? <Text style={[styles.linkHint, { color: colors.primary }]}>Tap to open survey ↗</Text> : null}
-    </TouchableOpacity>
+      {description ? (
+        <Text style={[styles.surveyDesc, { color: colors.textSecondary }]}>{description}</Text>
+      ) : null}
+
+      <View style={styles.metaRow}>
+        {deadline ? (
+          <View style={styles.metaItem}>
+            <Clock3 size={13} color={colors.textSecondary} style={{ opacity: 0.8 }} />
+            <Text style={[styles.surveyMeta, { color: colors.textSecondary }]}>
+              Deadline: {deadline}
+            </Text>
+          </View>
+        ) : null}
+        {url ? (
+          <View style={styles.metaItem}>
+            <ExternalLink size={13} color={colors.primary} />
+            <Text style={[styles.linkHint, { color: colors.primary }]}>Open survey</Text>
+          </View>
+        ) : null}
+      </View>
+    </AnimatedPressable>
   );
 }
 
@@ -89,6 +198,8 @@ export default function SurveyScreen() {
   const [isLoading, setIsLoading] = useState(!dataCache.surveys);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+  const [lastUpdated, setLastUpdated] = useState<string>('');
+  const [activeFilter, setActiveFilter] = useState<'all' | 'pending' | 'completed'>('all');
 
   const loadData = useCallback(async (showRefreshingSpinner = false) => {
     if (!isLoggedIn) return;
@@ -102,6 +213,7 @@ export default function SurveyScreen() {
 
     if (showRefreshingSpinner) {
       setIsRefreshing(true);
+      Haptics.selectionAsync().catch(() => {});
     } else if (!hasCache) {
       setIsLoading(true);
     }
@@ -119,6 +231,7 @@ export default function SurveyScreen() {
       const data = parseSurveys(res.html);
       setSurveys(data);
       await dataCache.setSurveys(data);
+      setLastUpdated('Updated just now');
     } catch (err: any) {
       if (!hasCache) {
         setErrorMsg(err.message || 'An error occurred while loading surveys.');
@@ -135,17 +248,83 @@ export default function SurveyScreen() {
     }
   }, [loadData, isLoggedIn]);
 
+  // Dynamic filter stats counts calculation
+  const counts = useMemo(() => {
+    return {
+      all: surveys.length,
+      pending: surveys.filter(s => s.status === 'pending' || s.status === 'new').length,
+      completed: surveys.filter(s => s.status === 'completed').length,
+    };
+  }, [surveys]);
+
+  const filteredSurveys = useMemo(() => {
+    if (activeFilter === 'all') return surveys;
+    if (activeFilter === 'pending') {
+      return surveys.filter(s => s.status === 'pending' || s.status === 'new');
+    }
+    return surveys.filter(s => s.status === 'completed');
+  }, [surveys, activeFilter]);
+
   return (
     <ProtectedScreen>
       <SafeAreaView edges={['top', 'left', 'right']} style={[styles.container, { backgroundColor: colors.background }]}>
+        {/* Subtle Ambient Glow */}
+        <View style={[styles.ambientGlow, { backgroundColor: colors.primary + '08' }]} />
+
         {/* Header */}
-        <View style={[styles.topBar, { borderBottomColor: colors.surfaceContainer }]}>
+        <View style={styles.topBar}>
           <View>
-            <Text style={[styles.topBarSub, { color: colors.textSecondary }]}>FEEDBACK</Text>
+            <Text style={[styles.topBarSub, { color: colors.textSecondary }]}>
+              {lastUpdated ? `FEEDBACK • ${lastUpdated.toUpperCase()}` : 'FEEDBACK'}
+            </Text>
             <Text style={[styles.topBarTitle, { color: colors.text }]}>Surveys</Text>
           </View>
           <ProfileButton />
         </View>
+
+        {/* Horizontal Filter Bar */}
+        {!isLoading && !errorMsg && (
+          <View style={styles.filterContainer}>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterScroll}>
+              {(['all', 'pending', 'completed'] as const).map((filter) => {
+                const isActive = activeFilter === filter;
+                const count = counts[filter];
+                const label = filter === 'all' 
+                  ? `All (${count})` 
+                  : filter === 'pending' 
+                    ? `Pending (${count})` 
+                    : `Completed (${count})`;
+
+                return (
+                  <Pressable
+                    key={filter}
+                    onPress={() => {
+                      Haptics.selectionAsync().catch(() => {});
+                      setActiveFilter(filter);
+                    }}
+                    style={[
+                      styles.filterPill,
+                      isActive 
+                        ? { backgroundColor: colors.primary }
+                        : { backgroundColor: colors.surfaceContainer }
+                    ]}
+                  >
+                    <Text 
+                      style={[
+                        styles.filterPillText, 
+                        isActive 
+                          ? { color: colors.surfaceLowest, fontFamily: Fonts.bodyBold }
+                          : { color: colors.textSecondary, fontFamily: Fonts.bodyMedium }
+                      ]}
+                    >
+                      {label}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+          </View>
+        )}
 
         {isLoading ? (
           <View style={styles.centerContainer}>
@@ -163,30 +342,36 @@ export default function SurveyScreen() {
         ) : (
           <ScrollView
             contentContainerStyle={styles.scrollContainer}
+            showsVerticalScrollIndicator={false}
+            contentInsetAdjustmentBehavior="automatic"
             refreshControl={
               <RefreshControl refreshing={isRefreshing} onRefresh={() => loadData(true)} tintColor={colors.primary} />
             }
           >
-            {surveys.length === 0 ? (
+            {filteredSurveys.length === 0 ? (
               <View style={[styles.placeholderCard, { backgroundColor: colors.surfaceContainer }]}>
-                <Ionicons name="checkbox-outline" size={40} color={colors.textSecondary} style={{ marginBottom: Spacing.one }} />
+                <View style={[styles.emptyIconBg, { backgroundColor: colors.surfaceHighest }]}>
+                  <ClipboardList size={32} color={colors.textSecondary} strokeWidth={1.8} />
+                </View>
                 <Text style={[styles.placeholderTitle, { color: colors.text }]}>
-                  No Surveys Found
+                  No {activeFilter !== 'all' ? activeFilter : ''} Surveys
                 </Text>
                 <Text style={[styles.placeholderDesc, { color: colors.textSecondary }]}>
                   Faculty and course surveys will appear here when they become available for your semester.
                 </Text>
               </View>
             ) : (
-              surveys.map((item, idx) => (
-                <SurveyCard key={idx} survey={item} colors={colors} />
+              filteredSurveys.map((item, idx) => (
+                <Animated.View key={idx} entering={FadeInDown.delay(idx * 40).springify()}>
+                  <SurveyCard survey={item} colors={colors} />
+                </Animated.View>
               ))
             )}
 
             {/* Info card */}
-            <View style={[styles.infoCard, { backgroundColor: colors.surfaceContainer, flexDirection: 'row', gap: Spacing.two, alignItems: 'flex-start' }]}>
-              <Ionicons name="information-circle-outline" size={16} color={colors.textSecondary} style={{ marginTop: 1 }} />
-              <Text style={[styles.infoText, { color: colors.textSecondary, flex: 1, textAlign: 'left' }]}>
+            <View style={[styles.infoCard, { backgroundColor: colors.surfaceContainer }]}>
+              <Info size={16} color={colors.textSecondary} style={{ marginTop: 2, marginRight: 8 }} />
+              <Text style={[styles.infoText, { color: colors.textSecondary }]}>
                 Surveys are typically available during the last two weeks of each semester. Your responses are anonymous and help improve teaching quality.
               </Text>
             </View>
@@ -201,23 +386,32 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
+  ambientGlow: {
+    position: 'absolute',
+    top: -120,
+    left: -120,
+    width: 320,
+    height: 320,
+    borderRadius: 160,
+    pointerEvents: 'none',
+  },
   topBar: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: Spacing.four,
-    paddingVertical: Spacing.three,
-    borderBottomWidth: 1,
+    paddingTop: Spacing.five,
+    paddingBottom: Spacing.three,
   },
   topBarSub: {
     fontFamily: Fonts.label,
     fontSize: 10,
-    letterSpacing: 1.5,
+    letterSpacing: 0.8,
     textTransform: 'uppercase',
   },
   topBarTitle: {
     fontFamily: Fonts.headlineBold,
-    fontSize: 22,
+    fontSize: 28,
     marginTop: 2,
   },
   profileCircle: {
@@ -231,83 +425,159 @@ const styles = StyleSheet.create({
     fontFamily: Fonts.bodyBold,
     fontSize: 14,
   },
+  filterContainer: {
+    paddingHorizontal: Spacing.four,
+    paddingBottom: Spacing.three,
+  },
+  filterScroll: {
+    gap: Spacing.two,
+    alignItems: 'center',
+  },
+  filterPill: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  filterPillText: {
+    fontSize: 13,
+  },
   scrollContainer: {
     padding: Spacing.four,
     paddingBottom: 96,
     gap: Spacing.four,
   },
   placeholderCard: {
-    padding: Spacing.five,
-    borderRadius: Roundness.md,
+    padding: Spacing.six,
+    borderRadius: 24,
     alignItems: 'center',
     gap: Spacing.two,
+    alignSelf: 'center',
+    width: '90%',
+    maxWidth: 400,
+    marginTop: Spacing.six,
   },
-  placeholderEmoji: {
-    fontSize: 40,
+  emptyIconBg: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: Spacing.two,
   },
   placeholderTitle: {
     fontFamily: Fonts.headlineBold,
-    fontSize: 18,
+    fontSize: 20,
     textAlign: 'center',
+    marginTop: Spacing.one,
   },
   placeholderDesc: {
     fontFamily: Fonts.body,
     fontSize: 13,
     lineHeight: 20,
     textAlign: 'center',
+    opacity: 0.8,
+    maxWidth: 280,
   },
   infoCard: {
-    padding: Spacing.three,
-    borderRadius: Roundness.default,
+    padding: Spacing.four,
+    borderRadius: 18,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginTop: Spacing.two,
   },
   infoText: {
-    fontFamily: Fonts.body,
+    fontFamily: Fonts.bodyMedium,
     fontSize: 12,
     lineHeight: 18,
-    textAlign: 'center',
+    flex: 1,
+    opacity: 0.8,
   },
   surveyCard: {
-    padding: Spacing.three,
-    borderRadius: Roundness.default,
-    borderWidth: 1,
-    gap: Spacing.one,
+    padding: Spacing.five,
+    borderRadius: 24,
+    gap: Spacing.two,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowRadius: 16,
+    elevation: 3,
   },
   surveyHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    alignItems: 'flex-start',
+  },
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: Spacing.two,
+    flex: 1,
+    paddingRight: Spacing.two,
+  },
+  iconBadge: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    justifyContent: 'center',
     alignItems: 'center',
   },
   surveyTitle: {
-    fontFamily: Fonts.headlineBold,
-    fontSize: 15,
+    fontFamily: Fonts.bodyBold,
+    fontSize: 16,
+    lineHeight: 22,
+    letterSpacing: -0.2,
     flex: 1,
   },
+  surveyCode: {
+    fontFamily: Fonts.bodyMedium,
+    fontSize: 12,
+    opacity: 0.65,
+    marginTop: 2,
+  },
   statusBadge: {
-    paddingHorizontal: Spacing.two,
-    paddingVertical: 4,
-    borderRadius: Roundness.sm,
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
   },
   statusText: {
-    fontFamily: Fonts.label,
-    fontSize: 10,
-    letterSpacing: 1,
-    textTransform: 'uppercase',
+    fontFamily: Fonts.bodyMedium,
+    fontSize: 11,
+  },
+  statusDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    marginRight: 6,
   },
   surveyDesc: {
     fontFamily: Fonts.body,
-    fontSize: 13,
-    marginTop: 2,
+    fontSize: 14,
+    lineHeight: 22,
+    opacity: 0.75,
   },
   surveyMeta: {
-    fontFamily: Fonts.body,
+    fontFamily: Fonts.bodyMedium,
     fontSize: 12,
-    fontStyle: 'italic',
-    marginTop: 4,
+    opacity: 0.55,
   },
   linkHint: {
-    fontFamily: Fonts.bodyBold,
+    fontFamily: Fonts.bodyMedium,
     fontSize: 12,
-    marginTop: Spacing.one,
+  },
+  metaRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: Spacing.three,
+    marginTop: 4,
+  },
+  metaItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
   },
   centerContainer: {
     flex: 1,
