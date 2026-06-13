@@ -36,21 +36,87 @@ import {
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
 /**
- * Utility function to parse system coursework titles into clean readable names and course codes.
+ * Utility function to parse system coursework titles into clean readable names (in Sentence case) and course codes.
  */
 function getCleanTitleAndCode(rawTitle: string) {
-  if (rawTitle.includes(' : ')) {
+  let cleanTitle = rawTitle.trim();
+  let displayCode = '';
+
+  const spaceColonSpaceIdx = rawTitle.indexOf(' : ');
+  const colonIdx = rawTitle.indexOf(':');
+  const spaceHyphenSpaceIdx = rawTitle.indexOf(' - ');
+
+  if (spaceColonSpaceIdx !== -1) {
     const parts = rawTitle.split(' : ');
     const codePart = parts[0].trim();
-    const cleanTitle = parts[1].trim();
-
-    // Try to extract course code (e.g. CST362) from codePart
-    const codeMatch = codePart.match(/[A-Z]{2,5}-\d{3,4}/) || codePart.match(/[A-Z]{2,5}\d{3,4}/);
-    const displayCode = codeMatch ? codeMatch[0] : codePart;
-
-    return { title: cleanTitle, code: displayCode };
+    cleanTitle = parts.slice(1).join(' : ').trim();
+    displayCode = codePart;
+  } else if (colonIdx !== -1) {
+    const codePart = rawTitle.substring(0, colonIdx).trim();
+    cleanTitle = rawTitle.substring(colonIdx + 1).trim();
+    displayCode = codePart;
+  } else if (spaceHyphenSpaceIdx !== -1) {
+    const codePart = rawTitle.substring(0, spaceHyphenSpaceIdx).trim();
+    cleanTitle = rawTitle.substring(spaceHyphenSpaceIdx + 3).trim();
+    displayCode = codePart;
   }
-  return { title: rawTitle, code: '' };
+
+  const toSentenceCase = (str: string): string => {
+    if (!str) return '';
+    let cleaned = str.trim().toLowerCase();
+    cleaned = cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
+
+    const acronyms = [
+      'ai', 'ml', 'dbms', 'sql', 'it', 'ktu', 'cse', 'ece', 'eee', 'me', 'ce', 'mca', 'btech', 'gcek',
+      'python', 'java', 'html', 'css', 'js', 'json', 'pdf', 'cad', 'cam', 'vlsi', 'iot'
+    ];
+    
+    const words = cleaned.split(/\s+/);
+    const mappedWords = words.map((word, index) => {
+      const cleanWord = word.replace(/[^a-zA-Z]/g, '').toLowerCase();
+      if (acronyms.includes(cleanWord)) {
+        const idx = acronyms.indexOf(cleanWord);
+        let proper = acronyms[idx];
+        if (['ai', 'ml', 'dbms', 'sql', 'it', 'ktu', 'cse', 'ece', 'eee', 'me', 'ce', 'mca', 'btech', 'gcek', 'html', 'css', 'js', 'json', 'pdf', 'cad', 'cam', 'vlsi', 'iot'].includes(proper)) {
+          proper = proper.toUpperCase();
+        } else if (proper === 'python') {
+          proper = 'Python';
+        } else if (proper === 'java') {
+          proper = 'Java';
+        }
+        
+        return word.replace(/[a-zA-Z]+/g, (m) => {
+          if (m.toLowerCase() === cleanWord) {
+            return index === 0 ? proper.charAt(0).toUpperCase() + proper.slice(1) : proper;
+          }
+          return m;
+        });
+      }
+      if (/^[ivx]+$/i.test(cleanWord)) {
+        return word.replace(/[a-zA-Z]+/g, (m) => m.toUpperCase());
+      }
+      return word;
+    });
+
+    return mappedWords.join(' ');
+  };
+
+  if (displayCode) {
+    const codeMatch = displayCode.match(/[A-Z]{2,5}-\d{3,4}/i) || displayCode.match(/[A-Z]{2,5}\d{3,4}/i);
+    if (codeMatch) {
+      displayCode = codeMatch[0].toUpperCase();
+    } else if (!/\s/.test(displayCode)) {
+      displayCode = displayCode.toUpperCase();
+    } else {
+      displayCode = toSentenceCase(displayCode);
+    }
+  }
+
+  if (cleanTitle) {
+    cleanTitle = toSentenceCase(cleanTitle);
+  }
+
+  return { title: cleanTitle, code: displayCode };
 }
 
 interface AssignmentCardProps {
@@ -90,18 +156,18 @@ function AssignmentCard({ assignment, colors }: AssignmentCardProps) {
   // Hardware-accelerated spring animations for micro-interactions
   const scale = useSharedValue(1);
   const opacity = useSharedValue(1);
-  const shadow = useSharedValue(3);
+  const shadow = useSharedValue(2);
 
   const handlePressIn = () => {
     scale.value = withSpring(0.985, { damping: 15, stiffness: 300 });
     opacity.value = withSpring(0.96, { damping: 15, stiffness: 300 });
-    shadow.value = withSpring(4, { damping: 15, stiffness: 300 });
+    shadow.value = withSpring(3, { damping: 15, stiffness: 300 });
   };
 
   const handlePressOut = () => {
     scale.value = withSpring(1, { damping: 15, stiffness: 300 });
     opacity.value = withSpring(1, { damping: 15, stiffness: 300 });
-    shadow.value = withSpring(3, { damping: 15, stiffness: 300 });
+    shadow.value = withSpring(2, { damping: 15, stiffness: 300 });
   };
 
   const animatedStyle = useAnimatedStyle(() => {
@@ -124,8 +190,8 @@ function AssignmentCard({ assignment, colors }: AssignmentCardProps) {
           borderColor: colors.ghostBorder,
           borderWidth: 1,
           shadowColor: '#000',
-          shadowOffset: { width: 0, height: 6 },
-          shadowOpacity: scheme === 'dark' ? 0.18 : 0.05,
+          shadowOffset: { width: 0, height: 4 },
+          shadowOpacity: scheme === 'dark' ? 0.15 : 0.04,
         },
         animatedStyle
       ]}
@@ -134,7 +200,7 @@ function AssignmentCard({ assignment, colors }: AssignmentCardProps) {
         <View style={styles.titleRow}>
           {/* Circular Tinted Icon Badge Container */}
           <View style={[styles.iconBadge, { backgroundColor: `${colors.primary}12` }]}>
-            <FileText size={18} color={colors.primary} strokeWidth={2} />
+            <FileText size={14} color={colors.primary} strokeWidth={2} />
           </View>
           <View style={{ flex: 1 }}>
             <Text style={[styles.assignTitle, { color: colors.text }]} numberOfLines={2}>
@@ -148,7 +214,7 @@ function AssignmentCard({ assignment, colors }: AssignmentCardProps) {
           </View>
         </View>
         <View style={[styles.statusBadge, { backgroundColor: badgeBg }]}>
-          <StatusIcon size={12} color={badgeText} style={{ marginRight: 4 }} strokeWidth={2.5} />
+          <StatusIcon size={10} color={badgeText} style={{ marginRight: 3 }} strokeWidth={2.5} />
           <Text style={[styles.statusText, { color: badgeText }]}>{label}</Text>
         </View>
       </View>
@@ -156,14 +222,14 @@ function AssignmentCard({ assignment, colors }: AssignmentCardProps) {
       <View style={styles.metaRow}>
         {subject ? (
           <View style={styles.metaItem}>
-            <BookOpen size={13} color={colors.textSecondary} style={{ opacity: 0.8 }} />
+            <BookOpen size={11} color={colors.textSecondary} style={{ opacity: 0.8 }} />
             <Text style={[styles.metaText, { color: colors.textSecondary }]} numberOfLines={1}>
               {subject}
             </Text>
           </View>
         ) : null}
         <View style={styles.metaItem}>
-          <Clock3 size={13} color={colors.textSecondary} style={{ opacity: 0.8 }} />
+          <Clock3 size={11} color={colors.textSecondary} style={{ opacity: 0.8 }} />
           <Text style={[styles.assignMeta, { color: colors.textSecondary }]}>
             Due: {dueDate}
           </Text>
@@ -418,13 +484,14 @@ const styles = StyleSheet.create({
     fontSize: 13,
   },
   scrollContainer: {
-    padding: Spacing.four,
+    paddingHorizontal: Spacing.three,
+    paddingVertical: Spacing.three,
     paddingBottom: 96,
-    gap: Spacing.four,
+    gap: Spacing.two,
   },
   placeholderCard: {
     padding: Spacing.six,
-    borderRadius: 24,
+    borderRadius: 20,
     alignItems: 'center',
     gap: Spacing.two,
     alignSelf: 'center',
@@ -433,16 +500,16 @@ const styles = StyleSheet.create({
     marginTop: Spacing.six,
   },
   emptyIconBg: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
+    width: 64,
+    height: 64,
+    borderRadius: 32,
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: Spacing.two,
   },
   placeholderTitle: {
     fontFamily: Fonts.headlineBold,
-    fontSize: 20,
+    fontSize: 18,
     textAlign: 'center',
     marginTop: Spacing.one,
   },
@@ -455,13 +522,14 @@ const styles = StyleSheet.create({
     maxWidth: 280,
   },
   assignCard: {
-    padding: Spacing.five,
-    borderRadius: 24,
-    gap: Spacing.two,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 16,
+    gap: 8,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 6 },
-    shadowRadius: 16,
-    elevation: 3,
+    shadowOffset: { width: 0, height: 2 },
+    shadowRadius: 6,
+    elevation: 2,
   },
   assignHeader: {
     flexDirection: 'row',
@@ -471,61 +539,61 @@ const styles = StyleSheet.create({
   titleRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    gap: Spacing.two,
+    gap: 10,
     flex: 1,
     paddingRight: Spacing.two,
   },
   iconBadge: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
     justifyContent: 'center',
     alignItems: 'center',
   },
   assignTitle: {
     fontFamily: Fonts.bodyBold,
-    fontSize: 16,
-    lineHeight: 22,
-    letterSpacing: -0.2,
+    fontSize: 14,
+    lineHeight: 18,
+    letterSpacing: -0.1,
     flex: 1,
   },
   assignCode: {
     fontFamily: Fonts.bodyMedium,
-    fontSize: 12,
+    fontSize: 10,
     opacity: 0.65,
-    marginTop: 2,
+    marginTop: 1,
   },
   statusBadge: {
     flexDirection: 'row',
     alignItems: 'center',
     borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
+    paddingHorizontal: 8,
+    paddingVertical: 3.5,
   },
   statusText: {
     fontFamily: Fonts.bodyMedium,
-    fontSize: 11,
+    fontSize: 10,
   },
   assignMeta: {
     fontFamily: Fonts.bodyMedium,
-    fontSize: 12,
+    fontSize: 11,
     opacity: 0.55,
   },
   metaRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     alignItems: 'center',
-    gap: Spacing.three,
-    marginTop: 4,
+    gap: 12,
+    marginTop: 0,
   },
   metaItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    gap: 4,
   },
   metaText: {
     fontFamily: Fonts.bodyMedium,
-    fontSize: 12,
+    fontSize: 11,
     opacity: 0.75,
   },
   centerContainer: {

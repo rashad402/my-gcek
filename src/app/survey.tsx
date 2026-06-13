@@ -37,21 +37,87 @@ import {
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
 /**
- * Utility function to parse system survey titles into clean readable names and course codes.
+ * Utility function to parse system survey titles into clean readable names (in Sentence case) and course codes.
  */
 function getCleanTitleAndCode(rawTitle: string) {
-  if (rawTitle.includes(' : ')) {
+  let cleanTitle = rawTitle.trim();
+  let displayCode = '';
+
+  const spaceColonSpaceIdx = rawTitle.indexOf(' : ');
+  const colonIdx = rawTitle.indexOf(':');
+  const spaceHyphenSpaceIdx = rawTitle.indexOf(' - ');
+
+  if (spaceColonSpaceIdx !== -1) {
     const parts = rawTitle.split(' : ');
     const codePart = parts[0].trim();
-    const cleanTitle = parts[1].trim();
-
-    // Try to extract course code (e.g. CST362) from codePart
-    const codeMatch = codePart.match(/[A-Z]{2,5}-\d{3,4}/) || codePart.match(/[A-Z]{2,5}\d{3,4}/);
-    const displayCode = codeMatch ? codeMatch[0] : codePart;
-
-    return { title: cleanTitle, code: displayCode };
+    cleanTitle = parts.slice(1).join(' : ').trim();
+    displayCode = codePart;
+  } else if (colonIdx !== -1) {
+    const codePart = rawTitle.substring(0, colonIdx).trim();
+    cleanTitle = rawTitle.substring(colonIdx + 1).trim();
+    displayCode = codePart;
+  } else if (spaceHyphenSpaceIdx !== -1) {
+    const codePart = rawTitle.substring(0, spaceHyphenSpaceIdx).trim();
+    cleanTitle = rawTitle.substring(spaceHyphenSpaceIdx + 3).trim();
+    displayCode = codePart;
   }
-  return { title: rawTitle, code: '' };
+
+  const toSentenceCase = (str: string): string => {
+    if (!str) return '';
+    let cleaned = str.trim().toLowerCase();
+    cleaned = cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
+
+    const acronyms = [
+      'ai', 'ml', 'dbms', 'sql', 'it', 'ktu', 'cse', 'ece', 'eee', 'me', 'ce', 'mca', 'btech', 'gcek',
+      'python', 'java', 'html', 'css', 'js', 'json', 'pdf', 'cad', 'cam', 'vlsi', 'iot'
+    ];
+    
+    const words = cleaned.split(/\s+/);
+    const mappedWords = words.map((word, index) => {
+      const cleanWord = word.replace(/[^a-zA-Z]/g, '').toLowerCase();
+      if (acronyms.includes(cleanWord)) {
+        const idx = acronyms.indexOf(cleanWord);
+        let proper = acronyms[idx];
+        if (['ai', 'ml', 'dbms', 'sql', 'it', 'ktu', 'cse', 'ece', 'eee', 'me', 'ce', 'mca', 'btech', 'gcek', 'html', 'css', 'js', 'json', 'pdf', 'cad', 'cam', 'vlsi', 'iot'].includes(proper)) {
+          proper = proper.toUpperCase();
+        } else if (proper === 'python') {
+          proper = 'Python';
+        } else if (proper === 'java') {
+          proper = 'Java';
+        }
+        
+        return word.replace(/[a-zA-Z]+/g, (m) => {
+          if (m.toLowerCase() === cleanWord) {
+            return index === 0 ? proper.charAt(0).toUpperCase() + proper.slice(1) : proper;
+          }
+          return m;
+        });
+      }
+      if (/^[ivx]+$/i.test(cleanWord)) {
+        return word.replace(/[a-zA-Z]+/g, (m) => m.toUpperCase());
+      }
+      return word;
+    });
+
+    return mappedWords.join(' ');
+  };
+
+  if (displayCode) {
+    const codeMatch = displayCode.match(/[A-Z]{2,5}-\d{3,4}/i) || displayCode.match(/[A-Z]{2,5}\d{3,4}/i);
+    if (codeMatch) {
+      displayCode = codeMatch[0].toUpperCase();
+    } else if (!/\s/.test(displayCode)) {
+      displayCode = displayCode.toUpperCase();
+    } else {
+      displayCode = toSentenceCase(displayCode);
+    }
+  }
+
+  if (cleanTitle) {
+    cleanTitle = toSentenceCase(cleanTitle);
+  }
+
+  return { title: cleanTitle, code: displayCode };
 }
 
 interface SurveyCardProps {
@@ -96,13 +162,13 @@ function SurveyCard({ survey, colors }: SurveyCardProps) {
   // Reanimated spring values for micro-interactions
   const scale = useSharedValue(1);
   const opacity = useSharedValue(1);
-  const shadow = useSharedValue(3);
+  const shadow = useSharedValue(2);
 
   const handlePressIn = () => {
     if (url) {
       scale.value = withSpring(0.985, { damping: 15, stiffness: 300 });
       opacity.value = withSpring(0.96, { damping: 15, stiffness: 300 });
-      shadow.value = withSpring(4, { damping: 15, stiffness: 300 });
+      shadow.value = withSpring(3, { damping: 15, stiffness: 300 });
     }
   };
 
@@ -110,7 +176,7 @@ function SurveyCard({ survey, colors }: SurveyCardProps) {
     if (url) {
       scale.value = withSpring(1, { damping: 15, stiffness: 300 });
       opacity.value = withSpring(1, { damping: 15, stiffness: 300 });
-      shadow.value = withSpring(3, { damping: 15, stiffness: 300 });
+      shadow.value = withSpring(2, { damping: 15, stiffness: 300 });
     }
   };
 
@@ -134,8 +200,8 @@ function SurveyCard({ survey, colors }: SurveyCardProps) {
           borderColor: colors.ghostBorder,
           borderWidth: 1,
           shadowColor: '#000',
-          shadowOffset: { width: 0, height: 6 },
-          shadowOpacity: scheme === 'dark' ? 0.18 : 0.05,
+          shadowOffset: { width: 0, height: 4 },
+          shadowOpacity: scheme === 'dark' ? 0.15 : 0.04,
         },
         animatedStyle
       ]}
@@ -146,12 +212,10 @@ function SurveyCard({ survey, colors }: SurveyCardProps) {
         <View style={styles.titleRow}>
           {/* Circular Tinted Icon Container */}
           <View style={[styles.iconBadge, { backgroundColor: `${colors.primary}12` }]}>
-            <ClipboardList size={18} color={colors.primary} strokeWidth={2} />
+            <ClipboardList size={14} color={colors.primary} strokeWidth={2} />
           </View>
           <View style={{ flex: 1 }}>
-            <Text style={[styles.surveyTitle, { color: colors.text }]} numberOfLines={2}>
-              {title}
-            </Text>
+            <Text style={[styles.surveyTitle, { color: colors.text }]} numberOfLines={2}>{title}</Text>
             {code ? (
               <Text style={[styles.surveyCode, { color: colors.textSecondary }]}>
                 {code}
@@ -171,7 +235,7 @@ function SurveyCard({ survey, colors }: SurveyCardProps) {
       <View style={styles.metaRow}>
         {deadline ? (
           <View style={styles.metaItem}>
-            <Clock3 size={13} color={colors.textSecondary} style={{ opacity: 0.8 }} />
+            <Clock3 size={11} color={colors.textSecondary} style={{ opacity: 0.8 }} />
             <Text style={[styles.surveyMeta, { color: colors.textSecondary }]}>
               Deadline: {deadline}
             </Text>
@@ -179,7 +243,7 @@ function SurveyCard({ survey, colors }: SurveyCardProps) {
         ) : null}
         {url ? (
           <View style={styles.metaItem}>
-            <ExternalLink size={13} color={colors.primary} />
+            <ExternalLink size={11} color={colors.primary} />
             <Text style={[styles.linkHint, { color: colors.primary }]}>Open survey</Text>
           </View>
         ) : null}
@@ -444,13 +508,14 @@ const styles = StyleSheet.create({
     fontSize: 13,
   },
   scrollContainer: {
-    padding: Spacing.four,
+    paddingHorizontal: Spacing.three,
+    paddingVertical: Spacing.three,
     paddingBottom: 96,
-    gap: Spacing.four,
+    gap: Spacing.two,
   },
   placeholderCard: {
     padding: Spacing.six,
-    borderRadius: 24,
+    borderRadius: 20,
     alignItems: 'center',
     gap: Spacing.two,
     alignSelf: 'center',
@@ -459,16 +524,16 @@ const styles = StyleSheet.create({
     marginTop: Spacing.six,
   },
   emptyIconBg: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
+    width: 64,
+    height: 64,
+    borderRadius: 32,
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: Spacing.two,
   },
   placeholderTitle: {
     fontFamily: Fonts.headlineBold,
-    fontSize: 20,
+    fontSize: 18,
     textAlign: 'center',
     marginTop: Spacing.one,
   },
@@ -495,13 +560,14 @@ const styles = StyleSheet.create({
     opacity: 0.8,
   },
   surveyCard: {
-    padding: Spacing.five,
-    borderRadius: 24,
-    gap: Spacing.two,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 16,
+    gap: 8,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 6 },
-    shadowRadius: 16,
-    elevation: 3,
+    shadowOffset: { width: 0, height: 2 },
+    shadowRadius: 6,
+    elevation: 2,
   },
   surveyHeader: {
     flexDirection: 'row',
@@ -511,73 +577,73 @@ const styles = StyleSheet.create({
   titleRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    gap: Spacing.two,
+    gap: 10,
     flex: 1,
     paddingRight: Spacing.two,
   },
   iconBadge: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
     justifyContent: 'center',
     alignItems: 'center',
   },
   surveyTitle: {
     fontFamily: Fonts.bodyBold,
-    fontSize: 16,
-    lineHeight: 22,
-    letterSpacing: -0.2,
+    fontSize: 14,
+    lineHeight: 18,
+    letterSpacing: -0.1,
     flex: 1,
   },
   surveyCode: {
     fontFamily: Fonts.bodyMedium,
-    fontSize: 12,
+    fontSize: 10,
     opacity: 0.65,
-    marginTop: 2,
+    marginTop: 1,
   },
   statusBadge: {
     flexDirection: 'row',
     alignItems: 'center',
     borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
+    paddingHorizontal: 8,
+    paddingVertical: 3.5,
   },
   statusText: {
     fontFamily: Fonts.bodyMedium,
-    fontSize: 11,
+    fontSize: 10,
   },
   statusDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    marginRight: 6,
+    width: 5,
+    height: 5,
+    borderRadius: 2.5,
+    marginRight: 4,
   },
   surveyDesc: {
     fontFamily: Fonts.body,
-    fontSize: 14,
-    lineHeight: 22,
+    fontSize: 12,
+    lineHeight: 18,
     opacity: 0.75,
   },
   surveyMeta: {
     fontFamily: Fonts.bodyMedium,
-    fontSize: 12,
+    fontSize: 11,
     opacity: 0.55,
   },
   linkHint: {
     fontFamily: Fonts.bodyMedium,
-    fontSize: 12,
+    fontSize: 11,
   },
   metaRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     alignItems: 'center',
-    gap: Spacing.three,
-    marginTop: 4,
+    gap: 12,
+    marginTop: 0,
   },
   metaItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    gap: 4,
   },
   centerContainer: {
     flex: 1,
