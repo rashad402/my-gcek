@@ -13,6 +13,7 @@ import { AnimatedSplashOverlay, AnimatedIcon } from '@/components/animated-icon'
 import AppTabs from '@/components/app-tabs';
 import { LoginProvider, useLogin } from '@/components/login-context';
 import { Colors } from '@/constants/theme';
+import Toast from 'react-native-toast-message';
 
 // Keep splash screen visible until fonts load
 SplashScreen.preventAutoHideAsync().catch(() => {});
@@ -78,6 +79,7 @@ export default function TabLayout() {
           </LoginProvider>
         </ThemeProvider>
       </SafeAreaProvider>
+      <Toast />
     </GestureHandlerRootView>
   );
 }
