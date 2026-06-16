@@ -1,5 +1,5 @@
 import { Tabs } from 'expo-router';
-import { StyleSheet, useColorScheme, Platform } from 'react-native';
+import { StyleSheet, useColorScheme, Platform, useWindowDimensions } from 'react-native';
 import { useLogin } from './login-context';
 import { Colors, Fonts, Roundness } from '@/constants/theme';
 import { BlurView } from 'expo-blur';
@@ -73,6 +73,7 @@ export default function AppTabs() {
   const colors = Colors[scheme];
   const { isLoggedIn } = useLogin();
   const insets = useSafeAreaInsets();
+  const { width } = useWindowDimensions();
 
   const triggerHaptic = () => {
     Haptics.selectionAsync().catch(() => {});
@@ -87,6 +88,8 @@ export default function AppTabs() {
           position: 'absolute',
           left: 24,
           right: 24,
+          width: width - 48,
+          transform: [{ translateX: 24 }],
           bottom: Platform.OS === 'ios' ? (insets.bottom > 0 ? insets.bottom : 16) : 16,
           borderRadius: 28,
           height: 64,

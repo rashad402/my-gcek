@@ -17,13 +17,16 @@ import { ProfileButton } from '@/components/profile-button';
 import { useLogin } from '@/components/login-context';
 import { fetchAssignments } from '@/services/etlab-api';
 import { parseAssignments, Assignment } from '@/services/etlab-parser';
+import { getSubjectName } from '@/services/subject-helper';
 import { dataCache } from '@/services/data-cache';
 import * as Haptics from 'expo-haptics';
 import Animated, { 
   FadeInDown, 
   useSharedValue, 
   useAnimatedStyle, 
-  withSpring 
+  withSpring,
+  interpolate,
+  interpolateColor
 } from 'react-native-reanimated';
 import { 
   FileText, 
@@ -37,85 +40,196 @@ const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 /**
  * Utility function to parse system coursework titles into clean readable names (in Sentence case) and course codes.
  */
-function getCleanTitleAndCode(rawTitle: string) {
-  let cleanTitle = rawTitle.trim();
-  let displayCode = '';
+function toSentenceCase(str: string): string {
+  if (!str) return '';
+  let cleaned = str.trim().toLowerCase();
+  cleaned = cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
 
-  const spaceColonSpaceIdx = rawTitle.indexOf(' : ');
-  const colonIdx = rawTitle.indexOf(':');
-  const spaceHyphenSpaceIdx = rawTitle.indexOf(' - ');
+  const acronyms = [
+    'ai', 'ml', 'dbms', 'sql', 'it', 'ktu', 'cse', 'ece', 'eee', 'me', 'ce', 'mca', 'btech', 'gcek',
+    'python', 'java', 'html', 'css', 'js', 'json', 'pdf', 'cad', 'cam', 'vlsi', 'iot'
+  ];
+  
+  const words = cleaned.split(/\s+/);
+  const mappedWords = words.map((word, index) => {
+    const cleanWord = word.replace(/[^a-zA-Z]/g, '').toLowerCase();
+    if (acronyms.includes(cleanWord)) {
+      const idx = acronyms.indexOf(cleanWord);
+      let proper = acronyms[idx];
+      if (['ai', 'ml', 'dbms', 'sql', 'it', 'ktu', 'cse', 'ece', 'eee', 'me', 'ce', 'mca', 'btech', 'gcek', 'html', 'css', 'js', 'json', 'pdf', 'cad', 'cam', 'vlsi', 'iot'].includes(proper)) {
+        proper = proper.toUpperCase();
+      } else if (proper === 'python') {
+        proper = 'Python';
+      } else if (proper === 'java') {
+        proper = 'Java';
+      }
+      
+      return word.replace(/[a-zA-Z]+/g, (m) => {
+        if (m.toLowerCase() === cleanWord) {
+          return index === 0 ? proper.charAt(0).toUpperCase() + proper.slice(1) : proper;
+        }
+        return m;
+      });
+    }
+    if (/^[ivx]+$/i.test(cleanWord)) {
+      return word.replace(/[a-zA-Z]+/g, (m) => m.toUpperCase());
+    }
+    return word;
+  });
 
-  if (spaceColonSpaceIdx !== -1) {
-    const parts = rawTitle.split(' : ');
-    const codePart = parts[0].trim();
-    cleanTitle = parts.slice(1).join(' : ').trim();
-    displayCode = codePart;
-  } else if (colonIdx !== -1) {
-    const codePart = rawTitle.substring(0, colonIdx).trim();
-    cleanTitle = rawTitle.substring(colonIdx + 1).trim();
-    displayCode = codePart;
-  } else if (spaceHyphenSpaceIdx !== -1) {
-    const codePart = rawTitle.substring(0, spaceHyphenSpaceIdx).trim();
-    cleanTitle = rawTitle.substring(spaceHyphenSpaceIdx + 3).trim();
-    displayCode = codePart;
+  return mappedWords.join(' ');
+}
+
+function cleanCourseName(courseName: string, code: string): string {
+  if (!courseName) return '';
+  let cleaned = courseName.trim();
+  if (code) {
+    const regex = new RegExp(code.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&'), 'gi');
+    cleaned = cleaned.replace(regex, '');
+  }
+  return cleaned.replace(/^[-\s:•]+/g, '').trim();
+}
+
+function getCleanTitleAndCode(rawTitle: string, rawSubjectCol: string) {
+  // Try to split rawTitle into parts
+  let parts: string[] = [rawTitle.trim()];
+  if (rawTitle.includes(' : ')) {
+    parts = rawTitle.split(' : ').map(p => p.trim());
+  } else if (rawTitle.includes(' - ')) {
+    parts = rawTitle.split(' - ').map(p => p.trim());
+  } else if (rawTitle.includes(':')) {
+    parts = rawTitle.split(':').map(p => p.trim());
+  } else if (rawTitle.includes('-')) {
+    parts = rawTitle.split('-').map(p => p.trim());
   }
 
-  const toSentenceCase = (str: string): string => {
-    if (!str) return '';
-    let cleaned = str.trim().toLowerCase();
-    cleaned = cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
+  let semester = '';
+  let courseCode = '';
+  let courseName = '';
+  let titlePart = '';
 
-    const acronyms = [
-      'ai', 'ml', 'dbms', 'sql', 'it', 'ktu', 'cse', 'ece', 'eee', 'me', 'ce', 'mca', 'btech', 'gcek',
-      'python', 'java', 'html', 'css', 'js', 'json', 'pdf', 'cad', 'cam', 'vlsi', 'iot'
-    ];
-    
-    const words = cleaned.split(/\s+/);
-    const mappedWords = words.map((word, index) => {
-      const cleanWord = word.replace(/[^a-zA-Z]/g, '').toLowerCase();
-      if (acronyms.includes(cleanWord)) {
-        const idx = acronyms.indexOf(cleanWord);
-        let proper = acronyms[idx];
-        if (['ai', 'ml', 'dbms', 'sql', 'it', 'ktu', 'cse', 'ece', 'eee', 'me', 'ce', 'mca', 'btech', 'gcek', 'html', 'css', 'js', 'json', 'pdf', 'cad', 'cam', 'vlsi', 'iot'].includes(proper)) {
-          proper = proper.toUpperCase();
-        } else if (proper === 'python') {
-          proper = 'Python';
-        } else if (proper === 'java') {
-          proper = 'Java';
-        }
-        
-        return word.replace(/[a-zA-Z]+/g, (m) => {
-          if (m.toLowerCase() === cleanWord) {
-            return index === 0 ? proper.charAt(0).toUpperCase() + proper.slice(1) : proper;
-          }
-          return m;
-        });
+  const codeRegex = /[A-Z]{2,5}-?\d{3,4}[A-Z]?/i;
+  const semRegex = /^(semester|sem|sem\s*\d|\bs\d\b)/i;
+
+  const remaining: string[] = [];
+  for (const part of parts) {
+    if (semRegex.test(part) || /semester\s*\d+/i.test(part) || /sem\s*\d+/i.test(part)) {
+      semester = part;
+    } else if (codeRegex.test(part)) {
+      const match = part.match(codeRegex);
+      if (match) {
+        courseCode = match[0].toUpperCase();
       }
-      if (/^[ivx]+$/i.test(cleanWord)) {
-        return word.replace(/[a-zA-Z]+/g, (m) => m.toUpperCase());
-      }
-      return word;
-    });
-
-    return mappedWords.join(' ');
-  };
-
-  if (displayCode) {
-    const codeMatch = displayCode.match(/[A-Z]{2,5}-\d{3,4}/i) || displayCode.match(/[A-Z]{2,5}\d{3,4}/i);
-    if (codeMatch) {
-      displayCode = codeMatch[0].toUpperCase();
-    } else if (!/\s/.test(displayCode)) {
-      displayCode = displayCode.toUpperCase();
     } else {
-      displayCode = toSentenceCase(displayCode);
+      remaining.push(part);
     }
   }
 
-  if (cleanTitle) {
-    cleanTitle = toSentenceCase(cleanTitle);
+  if (remaining.length >= 2) {
+    courseName = remaining[0];
+    titlePart = remaining.slice(1).join(' - ');
+  } else if (remaining.length === 1) {
+    titlePart = remaining[0];
   }
 
-  return { title: cleanTitle, code: displayCode };
+  // Fallback checks using subject column text (which is often "Semester 6" or similar)
+  if (rawSubjectCol) {
+    if (!courseCode) {
+      const match = rawSubjectCol.match(codeRegex);
+      if (match) {
+        courseCode = match[0].toUpperCase();
+      }
+    }
+    if (!semester) {
+      if (semRegex.test(rawSubjectCol) || /semester\s*\d+/i.test(rawSubjectCol) || /sem\s*\d+/i.test(rawSubjectCol)) {
+        semester = rawSubjectCol;
+      }
+    }
+    if (!courseName && !semRegex.test(rawSubjectCol)) {
+      courseName = rawSubjectCol;
+    }
+  }
+
+  if (courseCode && (!courseName || courseName === courseCode)) {
+    courseName = getSubjectName(courseCode);
+  }
+
+  const cleanTitle = toSentenceCase(titlePart || 'Assignment');
+  const cleanCode = courseCode ? courseCode.toUpperCase() : '';
+  const cleanCourseName = courseName ? toSentenceCase(courseName) : '';
+
+  return {
+    title: cleanTitle,
+    code: cleanCode,
+    courseName: cleanCourseName,
+    semester: semester ? toSentenceCase(semester) : ''
+  };
+}
+
+/**
+ * Helper to calculate the relative urgency text and semantic color for coursework deadlines.
+ */
+function getRelativeUrgency(
+  dateStr: string,
+  isOverdue: boolean,
+  isCompletedOrSubmitted: boolean
+): { text: string; color: string; label: string } {
+  const defaultText = `Due: ${dateStr}`;
+  if (!dateStr || dateStr.toLowerCase().includes('to be') || dateStr.trim() === '') {
+    return { text: dateStr || 'No deadline', color: '#5a5f63', label: 'TBA' };
+  }
+
+  // Parse DD-MM-YYYY or DD/MM/YYYY or YYYY-MM-DD
+  const cleanStr = dateStr.replace(/\//g, '-').trim();
+  const parts = cleanStr.split('-');
+  
+  let dateObj: Date | null = null;
+  if (parts.length === 3) {
+    if (parts[0].length === 4) {
+      // YYYY-MM-DD
+      const y = parseInt(parts[0], 10);
+      const m = parseInt(parts[1], 10) - 1;
+      const d = parseInt(parts[2], 10);
+      dateObj = new Date(y, m, d, 23, 59, 59);
+    } else if (parts[2].length === 4) {
+      // DD-MM-YYYY
+      const d = parseInt(parts[0], 10);
+      const m = parseInt(parts[1], 10) - 1;
+      const y = parseInt(parts[2], 10);
+      dateObj = new Date(y, m, d, 23, 59, 59);
+    }
+  }
+
+  if (!dateObj || isNaN(dateObj.getTime())) {
+    return { text: defaultText, color: '#5a5f63', label: 'TBA' };
+  }
+
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const targetDay = new Date(dateObj.getFullYear(), dateObj.getMonth(), dateObj.getDate());
+  
+  const diffTime = targetDay.getTime() - today.getTime();
+  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+  if (isCompletedOrSubmitted) {
+    return { text: defaultText, color: '#5a5f63', label: 'Done' };
+  }
+
+  if (diffDays < 0 || isOverdue) {
+    const absDays = Math.abs(diffDays);
+    if (absDays <= 1) {
+      return { text: 'Overdue (yesterday)', color: '#ef4444', label: 'Overdue' };
+    }
+    return { text: `Overdue by ${absDays} days`, color: '#ef4444', label: 'Overdue' };
+  } else if (diffDays === 0) {
+    return { text: 'Due today!', color: '#ef4444', label: 'Urgent' };
+  } else if (diffDays === 1) {
+    return { text: 'Due tomorrow', color: '#d97706', label: 'Soon' };
+  } else if (diffDays <= 3) {
+    return { text: `Due in ${diffDays} days`, color: '#d97706', label: 'Soon' };
+  } else {
+    return { text: `Due in ${diffDays} days`, color: '#5a5f63', label: 'Normal' };
+  }
 }
 
 interface AssignmentCardProps {
@@ -125,9 +239,13 @@ interface AssignmentCardProps {
 
 function AssignmentCard({ assignment, colors }: AssignmentCardProps) {
   const { title: rawTitle, subject, dueDate, status } = assignment;
-  const { title, code } = getCleanTitleAndCode(rawTitle);
+  const { title, code, courseName } = getCleanTitleAndCode(rawTitle, subject);
   const colorScheme = useColorScheme();
   const scheme = colorScheme === 'dark' ? 'dark' : 'light';
+
+  // Strip code from courseName and format it nicely
+  const displayCourseName = toSentenceCase(cleanCourseName(courseName || subject, code));
+  const displayAssignmentTitle = title || 'Assignment';
 
   // Determine badge colors and icons based on status
   let badgeBg = 'rgba(90, 95, 99, 0.08)';
@@ -153,32 +271,61 @@ function AssignmentCard({ assignment, colors }: AssignmentCardProps) {
   }
 
   // Soft border tint glow matching status
-  const cardBorderColor = scheme === 'dark'
-    ? (status === 'submitted' ? 'rgba(16, 185, 129, 0.22)' : status === 'pending' ? 'rgba(9, 76, 178, 0.22)' : 'rgba(239, 68, 68, 0.22)')
-    : (status === 'submitted' ? 'rgba(16, 185, 129, 0.12)' : status === 'pending' ? 'rgba(9, 76, 178, 0.12)' : 'rgba(239, 68, 68, 0.12)');
+  const borderStart = scheme === 'dark'
+    ? (status === 'submitted' ? 'rgba(16, 185, 129, 0.22)' : status === 'pending' ? 'rgba(9, 76, 178, 0.22)' : status === 'overdue' ? 'rgba(239, 68, 68, 0.22)' : 'rgba(90, 95, 99, 0.22)')
+    : (status === 'submitted' ? 'rgba(16, 185, 129, 0.12)' : status === 'pending' ? 'rgba(9, 76, 178, 0.12)' : status === 'overdue' ? 'rgba(239, 68, 68, 0.12)' : 'rgba(90, 95, 99, 0.12)');
+
+  const borderEnd = scheme === 'dark'
+    ? (status === 'submitted' ? 'rgba(16, 185, 129, 0.55)' : status === 'pending' ? 'rgba(9, 76, 178, 0.55)' : status === 'overdue' ? 'rgba(239, 68, 68, 0.55)' : 'rgba(90, 95, 99, 0.55)')
+    : (status === 'submitted' ? 'rgba(16, 185, 129, 0.35)' : status === 'pending' ? 'rgba(9, 76, 178, 0.35)' : status === 'overdue' ? 'rgba(239, 68, 68, 0.35)' : 'rgba(90, 95, 99, 0.35)');
+
+  // Left icon circle background status color tint
+  const iconCircleBg = scheme === 'dark'
+    ? (status === 'submitted' ? 'rgba(16, 185, 129, 0.15)' : status === 'pending' ? 'rgba(9, 76, 178, 0.15)' : 'rgba(239, 68, 68, 0.15)')
+    : (status === 'submitted' ? 'rgba(16, 185, 129, 0.08)' : status === 'pending' ? 'rgba(9, 76, 178, 0.08)' : 'rgba(239, 68, 68, 0.08)');
+
+  // Dynamic relative urgency date parsing
+  const urgency = getRelativeUrgency(dueDate, status === 'overdue', status === 'submitted');
 
   // Hardware-accelerated spring animations for micro-interactions
   const scale = useSharedValue(1);
   const opacity = useSharedValue(1);
   const shadow = useSharedValue(2);
+  const glowProgress = useSharedValue(0);
 
   const handlePressIn = () => {
     scale.value = withSpring(0.985, { damping: 15, stiffness: 300 });
     opacity.value = withSpring(0.96, { damping: 15, stiffness: 300 });
     shadow.value = withSpring(3, { damping: 15, stiffness: 300 });
+    glowProgress.value = withSpring(1, { damping: 15, stiffness: 300 });
   };
 
   const handlePressOut = () => {
     scale.value = withSpring(1, { damping: 15, stiffness: 300 });
     opacity.value = withSpring(1, { damping: 15, stiffness: 300 });
     shadow.value = withSpring(2, { damping: 15, stiffness: 300 });
+    glowProgress.value = withSpring(0, { damping: 15, stiffness: 300 });
   };
 
   const animatedStyle = useAnimatedStyle(() => {
+    const borderColor = interpolateColor(
+      glowProgress.value,
+      [0, 1],
+      [borderStart, borderEnd]
+    );
+
+    const shadowOpacityVal = scheme === 'dark'
+      ? interpolate(glowProgress.value, [0, 1], [0.15, 0.35])
+      : interpolate(glowProgress.value, [0, 1], [0.04, 0.12]);
+
+    const shadowRadiusVal = interpolate(glowProgress.value, [0, 1], [6, 12]);
+
     return {
       transform: [{ scale: scale.value }],
       opacity: opacity.value,
-      shadowRadius: shadow.value * 4,
+      borderColor: borderColor,
+      shadowOpacity: shadowOpacityVal,
+      shadowRadius: shadowRadiusVal,
       elevation: shadow.value,
     };
   });
@@ -191,11 +338,9 @@ function AssignmentCard({ assignment, colors }: AssignmentCardProps) {
         styles.assignCard,
         {
           backgroundColor: colors.surfaceLowest,
-          borderColor: cardBorderColor,
           borderWidth: 1,
           shadowColor: '#000',
           shadowOffset: { width: 0, height: 4 },
-          shadowOpacity: scheme === 'dark' ? 0.15 : 0.04,
         },
         animatedStyle
       ]}
@@ -206,16 +351,25 @@ function AssignmentCard({ assignment, colors }: AssignmentCardProps) {
       {/* Card Header */}
       <View style={styles.cardHeader}>
         <View style={styles.cardLeft}>
-          <View style={[styles.iconCircle, { backgroundColor: scheme === 'dark' ? 'rgba(255, 255, 255, 0.05)' : 'rgba(9, 76, 178, 0.06)' }]}>
-            <FileText size={20} color={colors.primary} strokeWidth={1.8} />
+          <View style={[styles.iconCircle, { backgroundColor: iconCircleBg }]}>
+            <FileText size={20} color={badgeText} strokeWidth={1.8} />
           </View>
           <View style={styles.cardHeaderText}>
+            {code ? (
+              <View style={[styles.codeBadge, { backgroundColor: scheme === 'dark' ? 'rgba(255, 255, 255, 0.08)' : 'rgba(9, 76, 178, 0.06)' }]}>
+                <Text style={[styles.codeBadgeText, { color: colors.primary }]}>
+                  {code.toUpperCase()}
+                </Text>
+              </View>
+            ) : null}
             <Text style={[styles.subjectTitle, { color: colors.text }]} numberOfLines={1}>
-              {title}
+              {displayCourseName}
             </Text>
-            <Text style={[styles.subjectSubtitle, { color: colors.textSecondary }]}>
-              {code ? `${code} • ` : ''}{subject}
-            </Text>
+            {displayAssignmentTitle ? (
+              <Text style={[styles.subjectSubtitle, { color: colors.textSecondary }]}>
+                {displayAssignmentTitle}
+              </Text>
+            ) : null}
           </View>
         </View>
         <View style={[styles.perfBadge, { backgroundColor: badgeBg }]}>
@@ -228,9 +382,9 @@ function AssignmentCard({ assignment, colors }: AssignmentCardProps) {
       <View style={styles.cardContent}>
         <View style={[styles.divider, { backgroundColor: colors.outlineVariant }]} />
         <View style={styles.metaRow}>
-          <Clock3 size={12} color={colors.textSecondary} style={{ opacity: 0.7 }} />
-          <Text style={[styles.assignMeta, { color: colors.textSecondary }]}>
-            Due: {dueDate}
+          <Clock3 size={12} color={urgency.color} style={{ opacity: 0.8 }} />
+          <Text style={[styles.assignMeta, { color: urgency.color, fontFamily: Fonts.bodyMedium }]}>
+            {urgency.text}
           </Text>
         </View>
       </View>
@@ -555,7 +709,20 @@ const styles = StyleSheet.create({
   },
   cardHeaderText: {
     flex: 1,
-    gap: 2,
+    gap: 3,
+  },
+  codeBadge: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: 6,
+    paddingVertical: 2.5,
+    borderRadius: 6,
+    marginBottom: 2,
+  },
+  codeBadgeText: {
+    fontFamily: Fonts.bodyBold,
+    fontSize: 9,
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
   },
   subjectTitle: {
     fontFamily: Fonts.bodyBold,

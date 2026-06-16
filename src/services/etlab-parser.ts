@@ -505,10 +505,10 @@ function cleanExamName(sectionTitle: string, examVal: string): string {
   if (valLower === 'result 4') return 'Supplementary 3';
 
   if (val) {
-    if (secLower.includes(valLower)) return sec;
+    if (secLower.includes(valLower)) return sec || 'Sessional Marks';
     return sec ? `${sec} - ${val}` : val;
   }
-  return sec;
+  return sec || 'Sessional Marks';
 }
 
 /**

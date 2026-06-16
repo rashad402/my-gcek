@@ -394,7 +394,9 @@ function SubjectResultCard({ subject, subjectName, results, colors, index }: Sub
               <View key={idx} style={styles.resultItemContainer}>
                 <View style={styles.resultRow}>
                   <View style={styles.resultInfo}>
-                    <Text style={[styles.examName, { color: colors.text }]}>{toSentenceCase(res.name)}</Text>
+                    <Text style={[styles.examName, { color: colors.text }]}>
+                      {res.name.trim() ? toSentenceCase(res.name) : 'Sessional Marks'}
+                    </Text>
                     {res.grade ? (
                       <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4, gap: 6 }}>
                         <Text style={[styles.gradeText, { color: colors.textSecondary }]}>Grade:</Text>
