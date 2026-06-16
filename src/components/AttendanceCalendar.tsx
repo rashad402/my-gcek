@@ -7,7 +7,7 @@ import {
   PanResponder,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import Animated, { FadeInUp, FadeOutDown, LinearTransition } from 'react-native-reanimated';
+import Animated, { LinearTransition } from 'react-native-reanimated';
 import { Fonts, Spacing, Roundness, ThemeColors } from '@/constants/theme';
 import { getSubjectName } from '@/services/subject-helper';
 import * as Haptics from 'expo-haptics';
@@ -395,11 +395,9 @@ export default function AttendanceCalendar({ records, subjectCode, colors }: Pro
         </View>
       </View>
 
-      {/* Collapsible Animated Detail Card */}
+      {/* Collapsible Detail Card */}
       {selectedDate && (
-        <Animated.View
-          entering={FadeInUp.duration(250).springify().damping(15)}
-          exiting={FadeOutDown.duration(200)}
+        <View
           style={[
             styles.detailCard,
             {
@@ -465,7 +463,7 @@ export default function AttendanceCalendar({ records, subjectCode, colors }: Pro
               </View>
             )}
           </View>
-        </Animated.View>
+        </View>
       )}
     </Animated.View>
   );

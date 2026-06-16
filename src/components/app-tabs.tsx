@@ -101,6 +101,7 @@ export default function AppTabs() {
           display: isLoggedIn ? 'flex' : 'none',
           paddingTop: 8,
           paddingBottom: 8,
+          paddingHorizontal: 8,
         },
         tabBarBackground: () => (
           <BlurView

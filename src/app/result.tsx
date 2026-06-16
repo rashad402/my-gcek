@@ -18,8 +18,53 @@ import { fetchResults } from '@/services/etlab-api';
 import { parseResults, SubjectResult, ResultEntry } from '@/services/etlab-parser';
 import { dataCache } from '@/services/data-cache';
 import * as Haptics from 'expo-haptics';
-import Animated, { useAnimatedStyle, withSpring, FadeInUp, FadeOutDown } from 'react-native-reanimated';
+import Animated, { 
+  useAnimatedStyle, 
+  withSpring, 
+  FadeInUp, 
+  useSharedValue,
+} from 'react-native-reanimated';
 import Toast from 'react-native-toast-message';
+
+const toSentenceCase = (str: string): string => {
+  if (!str) return '';
+  let cleaned = str.trim().toLowerCase();
+  cleaned = cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
+
+  const acronyms = [
+    'ai', 'ml', 'dbms', 'sql', 'it', 'ktu', 'cse', 'ece', 'eee', 'me', 'ce', 'mca', 'btech', 'gcek',
+    'python', 'java', 'html', 'css', 'js', 'json', 'pdf', 'cad', 'cam', 'vlsi', 'iot'
+  ];
+  
+  const words = cleaned.split(/\s+/);
+  const mappedWords = words.map((word, index) => {
+    const cleanWord = word.replace(/[^a-zA-Z]/g, '').toLowerCase();
+    if (acronyms.includes(cleanWord)) {
+      const idx = acronyms.indexOf(cleanWord);
+      let proper = acronyms[idx];
+      if (['ai', 'ml', 'dbms', 'sql', 'it', 'ktu', 'cse', 'ece', 'eee', 'me', 'ce', 'mca', 'btech', 'gcek', 'html', 'css', 'js', 'json', 'pdf', 'cad', 'cam', 'vlsi', 'iot'].includes(proper)) {
+        proper = proper.toUpperCase();
+      } else if (proper === 'python') {
+        proper = 'Python';
+      } else if (proper === 'java') {
+        proper = 'Java';
+      }
+      
+      return word.replace(/[a-zA-Z]+/g, (m) => {
+        if (m.toLowerCase() === cleanWord) {
+          return index === 0 ? proper.charAt(0).toUpperCase() + proper.slice(1) : proper;
+        }
+        return m;
+      });
+    }
+    if (/^[ivx]+$/i.test(cleanWord)) {
+      return word.replace(/[a-zA-Z]+/g, (m) => m.toUpperCase());
+    }
+    return word;
+  });
+
+  return mappedWords.join(' ');
+};
 
 function StatisticsCard({ subjects, colors }: { subjects: SubjectResult[], colors: any }) {
   const colorScheme = useColorScheme();
@@ -34,39 +79,33 @@ function StatisticsCard({ subjects, colors }: { subjects: SubjectResult[], color
 
   const totalAssessments = subjects.reduce((sum, s) => sum + s.results.length, 0);
 
-  const bg = scheme === 'dark' ? 'rgba(177, 197, 255, 0.08)' : 'rgba(9, 76, 178, 0.05)';
-  const dividerColor = scheme === 'dark' ? 'rgba(255, 255, 255, 0.12)' : 'rgba(0, 0, 0, 0.08)';
+  const bg = scheme === 'dark' ? 'rgba(177, 197, 255, 0.06)' : 'rgba(9, 76, 178, 0.04)';
+  const dividerColor = scheme === 'dark' ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.06)';
 
   return (
-    <View style={[styles.statsCard, { backgroundColor: bg, borderColor: colors.ghostBorder || 'rgba(0,0,0,0.05)', borderWidth: 1 }]}>
+    <View style={[styles.statsCard, { backgroundColor: bg, borderColor: colors.outlineVariant || 'rgba(0,0,0,0.05)', borderWidth: 1 }]}>
       <View style={styles.statItem}>
-        <View style={[styles.statIconCircle, { backgroundColor: scheme === 'dark' ? 'rgba(255,255,255,0.05)' : 'rgba(9,76,178,0.08)' }]}>
-          <Ionicons name="book-outline" size={16} color={colors.primary} />
+        <View style={[styles.statIconCircle, { backgroundColor: scheme === 'dark' ? 'rgba(177, 197, 255, 0.12)' : 'rgba(9, 76, 178, 0.08)' }]}>
+          <Ionicons name="book" size={20} color={colors.primary} />
         </View>
-        <View style={styles.statTexts}>
-          <Text style={[styles.statValue, { color: colors.text }]}>{totalSubjects}</Text>
-          <Text style={[styles.statLabel, { color: colors.textSecondary }]}>Subjects</Text>
-        </View>
+        <Text style={[styles.statValue, { color: colors.text }]}>{totalSubjects}</Text>
+        <Text style={[styles.statLabel, { color: colors.textSecondary }]}>Subjects</Text>
       </View>
       <View style={[styles.statDivider, { backgroundColor: dividerColor }]} />
       <View style={styles.statItem}>
-        <View style={[styles.statIconCircle, { backgroundColor: scheme === 'dark' ? 'rgba(255,255,255,0.05)' : 'rgba(9,76,178,0.08)' }]}>
-          <Ionicons name="trophy-outline" size={16} color={colors.primary} />
+        <View style={[styles.statIconCircle, { backgroundColor: scheme === 'dark' ? 'rgba(16, 185, 129, 0.15)' : 'rgba(16, 185, 129, 0.1)' }]}>
+          <Ionicons name="trophy" size={20} color={scheme === 'dark' ? '#4ade80' : '#059669'} />
         </View>
-        <View style={styles.statTexts}>
-          <Text style={[styles.statValue, { color: colors.primary }]}>{Math.round(avgPercentage)}%</Text>
-          <Text style={[styles.statLabel, { color: colors.textSecondary }]}>Average</Text>
-        </View>
+        <Text style={[styles.statValue, { color: colors.text }]}>{Math.round(avgPercentage)}%</Text>
+        <Text style={[styles.statLabel, { color: colors.textSecondary }]}>Average</Text>
       </View>
       <View style={[styles.statDivider, { backgroundColor: dividerColor }]} />
       <View style={styles.statItem}>
-        <View style={[styles.statIconCircle, { backgroundColor: scheme === 'dark' ? 'rgba(255,255,255,0.05)' : 'rgba(9,76,178,0.08)' }]}>
-          <Ionicons name="clipboard-outline" size={16} color={colors.primary} />
+        <View style={[styles.statIconCircle, { backgroundColor: scheme === 'dark' ? 'rgba(99, 102, 241, 0.15)' : 'rgba(99, 102, 241, 0.1)' }]}>
+          <Ionicons name="clipboard" size={20} color={scheme === 'dark' ? '#818cf8' : '#4f46e5'} />
         </View>
-        <View style={styles.statTexts}>
-          <Text style={[styles.statValue, { color: colors.text }]}>{totalAssessments}</Text>
-          <Text style={[styles.statLabel, { color: colors.textSecondary }]}>Assessments</Text>
-        </View>
+        <Text style={[styles.statValue, { color: colors.text }]}>{totalAssessments}</Text>
+        <Text style={[styles.statLabel, { color: colors.textSecondary }]}>Assessments</Text>
       </View>
     </View>
   );
@@ -110,9 +149,60 @@ function EmptyState({ colors }: { colors: any }) {
 function FilterBar({ sortBy, onFilterChange, colors }: { sortBy: 'name' | 'percentage' | 'assessments', onFilterChange: (sort: 'name' | 'percentage' | 'assessments') => void, colors: any }) {
   const colorScheme = useColorScheme();
   const scheme = colorScheme === 'dark' ? 'dark' : 'light';
+  const [containerWidth, setContainerWidth] = useState(0);
+
+  const activeIndex = sortBy === 'name' ? 0 : sortBy === 'percentage' ? 1 : 2;
+  const translationX = useSharedValue(0);
+
+  const padding = 4;
+  const gap = 4;
+  const numSegments = 3;
+  
+  const segmentWidth = containerWidth > 0 
+    ? (containerWidth - (padding * 2) - (gap * (numSegments - 1))) / numSegments 
+    : 0;
+
+  useEffect(() => {
+    if (segmentWidth > 0) {
+      translationX.value = withSpring(activeIndex * (segmentWidth + gap), {
+        damping: 22,
+        stiffness: 160,
+      });
+    }
+  }, [activeIndex, segmentWidth, translationX]);
+
+  const animatedPillStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: translationX.value }],
+    width: segmentWidth,
+  }));
+
+  const onContainerLayout = useCallback((event: any) => {
+    setContainerWidth(event.nativeEvent.layout.width);
+  }, []);
 
   return (
-    <View style={[styles.filterBar, { backgroundColor: scheme === 'dark' ? colors.surfaceLow : colors.surfaceContainer }]}>
+    <View 
+      style={[styles.filterBar, { backgroundColor: scheme === 'dark' ? colors.surfaceLow : colors.surfaceContainer }]}
+      onLayout={onContainerLayout}
+    >
+      {containerWidth > 0 && segmentWidth > 0 && (
+        <Animated.View 
+          style={[
+            styles.filterActivePill,
+            {
+              backgroundColor: scheme === 'dark' ? colors.surfaceContainer : colors.surfaceLowest,
+              shadowColor: '#000',
+              shadowOffset: { width: 0, height: 2 },
+              shadowOpacity: 0.12,
+              shadowRadius: 5,
+              elevation: 3,
+              left: padding,
+              width: segmentWidth,
+            },
+            animatedPillStyle
+          ]} 
+        />
+      )}
       {(['name', 'percentage', 'assessments'] as const).map((option) => {
         const isActive = sortBy === option;
         const label = option === 'name' ? 'Name' : option === 'percentage' ? 'Grade' : 'Tests';
@@ -121,17 +211,7 @@ function FilterBar({ sortBy, onFilterChange, colors }: { sortBy: 'name' | 'perce
         return (
           <TouchableOpacity
             key={option}
-            style={[
-              styles.filterSegment,
-              isActive && {
-                backgroundColor: scheme === 'dark' ? colors.surfaceContainer : colors.surfaceLowest,
-                shadowColor: '#000',
-                shadowOffset: { width: 0, height: 2 },
-                shadowOpacity: 0.08,
-                shadowRadius: 4,
-                elevation: 2,
-              }
-            ]}
+            style={styles.filterSegment}
             onPress={() => {
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
               onFilterChange(option);
@@ -140,7 +220,7 @@ function FilterBar({ sortBy, onFilterChange, colors }: { sortBy: 'name' | 'perce
           >
             <Ionicons 
               name={icon as any} 
-              size={14} 
+              size={13} 
               color={isActive ? colors.primary : colors.textSecondary} 
             />
             <Text 
@@ -199,12 +279,15 @@ function SkeletonCard({ colors }: { colors: any }) {
       <View style={styles.cardHeader}>
         <View style={styles.cardLeft}>
           <View style={[styles.skeleton, styles.skeletonCircle, { backgroundColor: colors.surfaceContainer }]} />
-          <View style={{ flex: 1, gap: Spacing.one }}>
-            <View style={[styles.skeleton, { width: '60%', height: 16, backgroundColor: colors.surfaceContainer }]} />
-            <View style={[styles.skeleton, { width: '40%', height: 12, backgroundColor: colors.surfaceContainer }]} />
+          <View style={{ flex: 1, gap: 6 }}>
+            <View style={[styles.skeleton, { width: '70%', height: 15, backgroundColor: colors.surfaceContainer }]} />
+            <View style={[styles.skeleton, { width: '45%', height: 11, backgroundColor: colors.surfaceContainer }]} />
           </View>
         </View>
-        <View style={[styles.skeleton, { width: 56, height: 24, borderRadius: 8, backgroundColor: colors.surfaceContainer }]} />
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.two }}>
+          <View style={[styles.skeleton, { width: 50, height: 24, borderRadius: 8, backgroundColor: colors.surfaceContainer }]} />
+          <View style={[styles.skeleton, { width: 18, height: 18, borderRadius: 9, backgroundColor: colors.surfaceContainer }]} />
+        </View>
       </View>
     </View>
   );
@@ -215,9 +298,10 @@ interface SubjectResultCardProps {
   subjectName?: string;
   results: ResultEntry[];
   colors: any;
+  index: number;
 }
 
-function SubjectResultCard({ subject, subjectName, results, colors }: SubjectResultCardProps) {
+function SubjectResultCard({ subject, subjectName, results, colors, index }: SubjectResultCardProps) {
   const [expanded, setExpanded] = useState(false);
   const colorScheme = useColorScheme();
   const scheme = colorScheme === 'dark' ? 'dark' : 'light';
@@ -238,8 +322,18 @@ function SubjectResultCard({ subject, subjectName, results, colors }: SubjectRes
     perfBg = 'rgba(245, 158, 11, 0.1)';
   }
 
+  // Soft border tint glow matching performance
+  const cardBorderColor = scheme === 'dark' 
+    ? (percentage >= 75 ? 'rgba(16, 185, 129, 0.22)' : percentage >= 50 ? 'rgba(245, 158, 11, 0.22)' : 'rgba(239, 68, 68, 0.22)')
+    : (percentage >= 75 ? 'rgba(16, 185, 129, 0.12)' : percentage >= 50 ? 'rgba(245, 158, 11, 0.12)' : 'rgba(239, 68, 68, 0.12)');
+
+  const displayTitle = subjectName ? toSentenceCase(subjectName) : subject.toUpperCase();
+
   return (
-    <View style={[styles.subjectCard, { backgroundColor: colors.surfaceLowest, borderColor: colors.outlineVariant, paddingLeft: 12 }]}>
+    <Animated.View 
+      entering={FadeInUp.delay(index * 50).duration(300)}
+      style={[styles.subjectCard, { backgroundColor: colors.surfaceLowest, borderColor: cardBorderColor, paddingLeft: 12 }]}
+    >
       <View style={[styles.accentStrip, { backgroundColor: perfColor }]} />
       <TouchableOpacity
         style={styles.cardHeader}
@@ -249,18 +343,18 @@ function SubjectResultCard({ subject, subjectName, results, colors }: SubjectRes
         }}
         activeOpacity={0.7}
         accessible={true}
-        accessibilityLabel={`${subjectName || subject}, ${percentage}%, ${results.length} assessments`}
+        accessibilityLabel={`${displayTitle}, ${percentage}%, ${results.length} assessments`}
         accessibilityRole="button"
         accessibilityState={{ expanded }}
         accessibilityHint="Double tap to expand and view assessment details"
       >
         <View style={styles.cardLeft}>
-          <View style={[styles.iconCircle, { backgroundColor: 'rgba(9, 76, 178, 0.08)' }]}>
+          <View style={[styles.iconCircle, { backgroundColor: scheme === 'dark' ? 'rgba(255, 255, 255, 0.05)' : 'rgba(9, 76, 178, 0.06)' }]}>
             <Ionicons name="book-outline" size={20} color={colors.primary} />
           </View>
           <View style={styles.cardHeaderText}>
             <Text style={[styles.subjectTitle, { color: colors.text }]} numberOfLines={1}>
-              {subjectName || subject}
+              {displayTitle}
             </Text>
             <Text style={[styles.subjectSubtitle, { color: colors.textSecondary }]}>
               {subject} • {results.length} test{results.length > 1 ? 's' : ''}
@@ -281,11 +375,7 @@ function SubjectResultCard({ subject, subjectName, results, colors }: SubjectRes
       </TouchableOpacity>
 
       {expanded && (
-        <Animated.View 
-          entering={FadeInUp.duration(200)} 
-          exiting={FadeOutDown.duration(150)} 
-          style={styles.cardContent}
-        >
+        <View style={styles.cardContent}>
           <View style={[styles.divider, { backgroundColor: colors.outlineVariant }]} />
           {results.map((res, idx) => {
             const isGraded = res.marks !== null && res.marks !== undefined;
@@ -304,7 +394,7 @@ function SubjectResultCard({ subject, subjectName, results, colors }: SubjectRes
               <View key={idx} style={styles.resultItemContainer}>
                 <View style={styles.resultRow}>
                   <View style={styles.resultInfo}>
-                    <Text style={[styles.examName, { color: colors.text }]}>{res.name}</Text>
+                    <Text style={[styles.examName, { color: colors.text }]}>{toSentenceCase(res.name)}</Text>
                     {res.grade ? (
                       <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4, gap: 6 }}>
                         <Text style={[styles.gradeText, { color: colors.textSecondary }]}>Grade:</Text>
@@ -312,7 +402,7 @@ function SubjectResultCard({ subject, subjectName, results, colors }: SubjectRes
                       </View>
                     ) : null}
                   </View>
-                  <View style={[styles.marksBadge, { backgroundColor: scheme === 'dark' ? colors.surfaceLow : 'rgba(0,0,0,0.03)' }]}>
+                  <View style={[styles.marksBadge, { backgroundColor: scheme === 'dark' ? colors.surfaceLow : 'rgba(0, 0, 0, 0.03)' }]}>
                     <Text style={[styles.marksBadgeText, { color: colors.text }]}>
                       {isGraded ? `${res.marks} / ${res.total}` : `- / ${res.total}`}
                     </Text>
@@ -324,9 +414,9 @@ function SubjectResultCard({ subject, subjectName, results, colors }: SubjectRes
               </View>
             );
           })}
-        </Animated.View>
+        </View>
       )}
-    </View>
+    </Animated.View>
   );
 }
 
@@ -425,11 +515,8 @@ export default function ResultScreen() {
     <ProtectedScreen>
       <SafeAreaView edges={['top', 'left', 'right']} style={[styles.container, { backgroundColor: colors.background }]}>
         {/* Header bar */}
-        <View style={[styles.topBar, { borderBottomColor: colors.surfaceContainer }]}>
-          <View>
-            <Text style={[styles.topBarSub, { color: colors.textSecondary }]}>Academic Records</Text>
-            <Text style={[styles.topBarTitle, { color: colors.text }]}>Results</Text>
-          </View>
+        <View style={[styles.topBar, { borderBottomColor: colors.surfaceContainer, paddingVertical: Spacing.two }]}>
+          <Text style={[styles.topBarTitle, { color: colors.text }]}>Results</Text>
           <ProfileButton />
         </View>
 
@@ -445,25 +532,29 @@ export default function ResultScreen() {
             {/* StatisticsCard skeleton */}
             <View style={[styles.statsCard, { backgroundColor: colors.surfaceContainer, opacity: 0.6, borderColor: colors.ghostBorder || 'rgba(0,0,0,0.05)', borderWidth: 1 }]}>
               <View style={styles.statItem}>
-                <View style={[styles.skeleton, { width: 32, height: 24, backgroundColor: colors.surfaceLow }]} />
-                <View style={[styles.skeleton, { width: 48, height: 12, backgroundColor: colors.surfaceLow }]} />
+                <View style={[styles.skeleton, { width: 42, height: 42, borderRadius: 21, backgroundColor: colors.surfaceLow }]} />
+                <View style={[styles.skeleton, { width: 32, height: 20, backgroundColor: colors.surfaceLow }]} />
+                <View style={[styles.skeleton, { width: 50, height: 12, backgroundColor: colors.surfaceLow }]} />
               </View>
               <View style={[styles.statDivider, { backgroundColor: colors.surfaceLow }]} />
               <View style={styles.statItem}>
-                <View style={[styles.skeleton, { width: 32, height: 24, backgroundColor: colors.surfaceLow }]} />
-                <View style={[styles.skeleton, { width: 48, height: 12, backgroundColor: colors.surfaceLow }]} />
+                <View style={[styles.skeleton, { width: 42, height: 42, borderRadius: 21, backgroundColor: colors.surfaceLow }]} />
+                <View style={[styles.skeleton, { width: 32, height: 20, backgroundColor: colors.surfaceLow }]} />
+                <View style={[styles.skeleton, { width: 50, height: 12, backgroundColor: colors.surfaceLow }]} />
               </View>
               <View style={[styles.statDivider, { backgroundColor: colors.surfaceLow }]} />
               <View style={styles.statItem}>
-                <View style={[styles.skeleton, { width: 32, height: 24, backgroundColor: colors.surfaceLow }]} />
-                <View style={[styles.skeleton, { width: 48, height: 12, backgroundColor: colors.surfaceLow }]} />
+                <View style={[styles.skeleton, { width: 42, height: 42, borderRadius: 21, backgroundColor: colors.surfaceLow }]} />
+                <View style={[styles.skeleton, { width: 32, height: 20, backgroundColor: colors.surfaceLow }]} />
+                <View style={[styles.skeleton, { width: 50, height: 12, backgroundColor: colors.surfaceLow }]} />
               </View>
             </View>
 
             {/* FilterBar skeleton */}
-            <View style={styles.filterBar}>
-              <View style={[styles.skeleton, { width: 80, height: 32, borderRadius: 16, backgroundColor: colors.surfaceContainer }]} />
-              <View style={[styles.skeleton, { width: 110, height: 32, borderRadius: 16, backgroundColor: colors.surfaceContainer }]} />
+            <View style={[styles.filterBar, { backgroundColor: colors.surfaceContainer, opacity: 0.6 }]}>
+              <View style={[styles.skeleton, { flex: 1, height: 28, borderRadius: 8, backgroundColor: colors.surfaceLow }]} />
+              <View style={[styles.skeleton, { flex: 1, height: 28, borderRadius: 8, backgroundColor: colors.surfaceLow }]} />
+              <View style={[styles.skeleton, { flex: 1, height: 28, borderRadius: 8, backgroundColor: colors.surfaceLow }]} />
             </View>
 
             {/* Multiple card skeletons */}
@@ -510,7 +601,7 @@ export default function ResultScreen() {
               <EmptyState colors={colors} />
             ) : (
               sortedResults.map((item, idx) => (
-                <SubjectResultCard key={idx} subject={item.subject} subjectName={item.subjectName} results={item.results} colors={colors} />
+                <SubjectResultCard key={item.subject} subject={item.subject} subjectName={item.subjectName} results={item.results} colors={colors} index={idx} />
               ))
             )}
           </ScrollView>
@@ -534,15 +625,9 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.three,
     borderBottomWidth: 1,
   },
-  topBarSub: {
-    fontFamily: Fonts.bodyMedium,
-    fontSize: 11,
-    letterSpacing: 0.5,
-  },
   topBarTitle: {
     fontFamily: Fonts.bodyBold,
-    fontSize: 24,
-    marginTop: 2,
+    fontSize: 18,
   },
   profileCircle: {
     width: 32,
@@ -600,7 +685,7 @@ const styles = StyleSheet.create({
     left: 0,
     top: 0,
     bottom: 0,
-    width: 4,
+    width: 5,
   },
   cardHeader: {
     flexDirection: 'row',
@@ -626,7 +711,8 @@ const styles = StyleSheet.create({
   },
   subjectSubtitle: {
     fontFamily: Fonts.body,
-    fontSize: 12,
+    fontSize: 11,
+    opacity: 0.7,
   },
   cardRight: {
     flexDirection: 'row',
@@ -634,16 +720,16 @@ const styles = StyleSheet.create({
     gap: Spacing.two,
   },
   perfBadge: {
-    paddingHorizontal: 8,
+    paddingHorizontal: 10,
     paddingVertical: 4,
-    borderRadius: 8,
+    borderRadius: Roundness.full,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: Spacing.half,
+    gap: 4,
   },
   perfBadgeText: {
     fontFamily: Fonts.bodyBold,
-    fontSize: 13,
+    fontSize: 12,
   },
   percentageText: {
     fontFamily: Fonts.headlineBold,
@@ -654,7 +740,7 @@ const styles = StyleSheet.create({
     fontFamily: Fonts.body,
   },
   cardContent: {
-    paddingBottom: Spacing.three,
+    paddingBottom: Spacing.two,
     paddingHorizontal: Spacing.three,
   },
   divider: {
@@ -665,9 +751,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: Spacing.two,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(195, 198, 213, 0.05)',
+    paddingVertical: 4,
   },
   resultInfo: {
     flex: 1,
@@ -689,13 +773,13 @@ const styles = StyleSheet.create({
   marksBadge: {
     paddingHorizontal: 8,
     paddingVertical: 4,
-    borderRadius: 6,
-    minWidth: 64,
+    borderRadius: Roundness.full,
+    minWidth: 60,
     alignItems: 'center',
   },
   marksBadgeText: {
-    fontFamily: Fonts.bodyBold,
-    fontSize: 12,
+    fontFamily: Fonts.bodyMedium,
+    fontSize: 11,
   },
   iconCircle: {
     width: 44,
@@ -748,14 +832,14 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   resultItemContainer: {
-    paddingVertical: Spacing.half,
+    paddingVertical: 6,
   },
   progressBarWrapper: {
-    height: 3,
+    height: 2,
     width: '100%',
     position: 'relative',
     marginTop: 6,
-    marginBottom: Spacing.one,
+    marginBottom: 4,
   },
   progressBarBackground: {
     position: 'absolute',
@@ -763,55 +847,54 @@ const styles = StyleSheet.create({
     right: 0,
     top: 0,
     bottom: 0,
-    borderRadius: 2,
+    borderRadius: 1,
   },
   progressBarFill: {
     position: 'absolute',
     left: 0,
     top: 0,
     bottom: 0,
-    borderRadius: 2,
+    borderRadius: 1,
   },
 
   // StatisticsCard styles
   statsCard: {
     flexDirection: 'row',
-    paddingHorizontal: Spacing.three,
-    paddingVertical: Spacing.three,
+    paddingHorizontal: Spacing.four,
+    paddingVertical: Spacing.four,
     borderRadius: 16,
     justifyContent: 'space-around',
     marginBottom: Spacing.two,
   },
   statItem: {
-    flexDirection: 'row',
     alignItems: 'center',
-    gap: Spacing.two,
     flex: 1,
-    justifyContent: 'center',
+    gap: 6,
   },
   statIconCircle: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    width: 42,
+    height: 42,
+    borderRadius: 21,
     justifyContent: 'center',
     alignItems: 'center',
+    marginBottom: 2,
   },
   statTexts: {
-    alignItems: 'flex-start',
+    alignItems: 'center',
   },
   statValue: {
     fontFamily: Fonts.bodyBold,
-    fontSize: 18,
-    lineHeight: 22,
+    fontSize: 20,
+    lineHeight: 24,
   },
   statLabel: {
-    fontFamily: Fonts.body,
-    fontSize: 11,
+    fontFamily: Fonts.bodyMedium,
+    fontSize: 12,
     opacity: 0.8,
   },
   statDivider: {
     width: 1,
-    height: 24,
+    height: 48,
     alignSelf: 'center',
   },
 
@@ -863,6 +946,13 @@ const styles = StyleSheet.create({
     padding: 4,
     marginBottom: Spacing.three,
     gap: 4,
+    position: 'relative',
+  },
+  filterActivePill: {
+    position: 'absolute',
+    top: 4,
+    bottom: 4,
+    borderRadius: 8,
   },
   filterSegment: {
     flex: 1,
@@ -872,6 +962,7 @@ const styles = StyleSheet.create({
     gap: 6,
     paddingVertical: 8,
     borderRadius: 8,
+    zIndex: 1,
   },
   filterText: {
     fontSize: 12,
