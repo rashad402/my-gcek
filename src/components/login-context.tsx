@@ -15,6 +15,9 @@ const KEY_IS_LOGGED_IN = 'gcek_is_logged_in';
 /** Persists the student-specific ID used for attendance URLs. */
 const KEY_STUDENT_ID = 'gcek_student_id';
 
+/** Persists the password securely for silent background re-authentication. */
+const KEY_PASSWORD = 'gcek_session_password';
+
 // ─── Context type ───────────────────────────────────────────────────────────
 
 interface LoginContextType {
@@ -64,10 +67,20 @@ export function LoginProvider({ children }: { children: ReactNode }) {
           setStudentId(savedStudentId || '');
           setIsRestoringSession(false);
 
-          // 2. Validate in the background, log out only if explicitly expired
+          // 2. Validate in the background, attempt silent re-login if expired
           validateSession().then(async (status) => {
             if (status === 'expired') {
-              console.log('[Auth] Background check determined session is expired. Logging out.');
+              const savedPassword = await SecureStore.getItemAsync(KEY_PASSWORD);
+              if (savedPassword) {
+                console.log('[Auth] Background session expired. Attempting silent re-login...');
+                const res = await loginToEtlab(savedUsername, savedPassword, true);
+                if (res.success) {
+                  console.log('[Auth] Silent background re-login successful.');
+                  return;
+                }
+              }
+
+              console.log('[Auth] Background check determined session is expired and re-login failed. Logging out.');
               setIsLoggedIn(false);
               setUsername('');
               setStudentId('');
@@ -119,6 +132,7 @@ export function LoginProvider({ children }: { children: ReactNode }) {
           try {
             await SecureStore.setItemAsync(KEY_USERNAME, user);
             await SecureStore.setItemAsync(KEY_IS_LOGGED_IN, 'true');
+            await SecureStore.setItemAsync(KEY_PASSWORD, password);
             
             if (result.studentId) {
               await SecureStore.setItemAsync(KEY_STUDENT_ID, result.studentId);
@@ -163,6 +177,16 @@ export function LoginProvider({ children }: { children: ReactNode }) {
     if (!isLoggedIn) return;
     const status = await validateSession();
     if (status === 'expired') {
+      const savedPassword = await SecureStore.getItemAsync(KEY_PASSWORD);
+      if (savedPassword) {
+        console.log('[Auth] Active session expired. Attempting silent re-login...');
+        const res = await loginToEtlab(username, savedPassword, true);
+        if (res.success) {
+          console.log('[Auth] Silent active re-login successful.');
+          return;
+        }
+      }
+
       console.log('[Auth] Session expired and invalidated. Prompting user for login.');
       Alert.alert('Session Expired', 'Please log in again.', [
         { text: 'OK', onPress: () => logout() },
@@ -204,6 +228,7 @@ async function clearPersistedSession() {
     await SecureStore.deleteItemAsync(KEY_USERNAME);
     await SecureStore.deleteItemAsync(KEY_IS_LOGGED_IN);
     await SecureStore.deleteItemAsync(KEY_STUDENT_ID);
+    await SecureStore.deleteItemAsync(KEY_PASSWORD);
   } catch {
     // Ignore — session is cleared in-memory regardless.
   }
