@@ -11,6 +11,7 @@ import {
   ActivityIndicator,
   Linking,
   useColorScheme,
+  Image,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLogin } from './login-context';
@@ -88,7 +89,7 @@ export default function LoginScreen() {
     const trimmedPass = passwordInput.trim();
 
     if (!trimmedUser || !trimmedPass) {
-      setErrorMsg('Please enter both University ID and Password.');
+      setErrorMsg('Please enter both ETLAB Username and Password.');
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {});
       triggerShake();
       return;
@@ -144,24 +145,19 @@ export default function LoginScreen() {
                 start={{ x: 0.5, y: 0 }}
                 end={{ x: 0.5, y: 1 }}
               />
-              <View style={styles.iconFrame}>
-                <LinearGradient
-                  colors={[colors.primary, colors.primaryContainer]}
-                  style={StyleSheet.absoluteFill}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 1 }}
-                />
-                <Ionicons name="school" size={32} color="#ffffff" />
-              </View>
-              <Text style={[styles.title, { color: colors.text }]}>Welcome to ETLAB GCEK</Text>
-              <Text style={[styles.subtitle, { color: colors.textSecondary }]}>The Digital Curator</Text>
+              <Image
+                source={require('@/assets/images/my-gcek-logo.png')}
+                style={styles.logo}
+                resizeMode="contain"
+              />
+              <Text style={[styles.title, { color: colors.text }]}>Welcome to My GCEK</Text>
             </View>
 
             {/* Login Form */}
             <Animated.View style={[styles.form, animatedFormStyle]}>
               {/* Input Group: Username */}
               <View style={styles.inputGroup}>
-                <Text style={[styles.label, { color: colors.textSecondary }]}>University ID</Text>
+                <Text style={[styles.label, { color: colors.textSecondary }]}>ETLAB Username</Text>
                 <View style={[
                   styles.inputWrapper,
                   {
@@ -179,7 +175,7 @@ export default function LoginScreen() {
                   <TextInput
                     ref={usernameRef}
                     style={[styles.input, { color: colors.text }]}
-                    placeholder="Enter your ETLAB ID"
+                    placeholder="Enter your ETLAB username"
                     placeholderTextColor={colors.outline}
                     value={usernameInput}
                     onChangeText={(val) => {
@@ -190,7 +186,7 @@ export default function LoginScreen() {
                     editable={!isLoading}
                     onFocus={() => handleFocus('user')}
                     onBlur={() => setFocusedField(null)}
-                    accessibilityLabel="University ID"
+                    accessibilityLabel="ETLAB Username"
                     textContentType="username"
                     autoComplete="username"
                     returnKeyType="next"
@@ -379,19 +375,12 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
     zIndex: -1,
   },
-  iconFrame: {
-    width: 68,
-    height: 68,
-    borderRadius: Roundness.full,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: Spacing.three,
+  logo: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
     overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 3,
+    marginBottom: Spacing.three,
   },
   title: {
     fontFamily: Fonts.headlineBold,
