@@ -31,7 +31,9 @@ import {
   ClipboardList, 
   Clock3, 
   Info, 
-  ExternalLink 
+  ExternalLink,
+  CircleCheck,
+  CircleAlert
 } from 'lucide-react-native';
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
@@ -135,20 +137,29 @@ function SurveyCard({ survey, colors }: SurveyCardProps) {
   let badgeBg = 'rgba(90, 95, 99, 0.08)';
   let badgeText = colors.secondary;
   let label = 'Unknown';
+  let StatusIcon = CircleAlert;
 
   if (status === 'completed') {
-    badgeBg = `${colors.success}15`;
+    badgeBg = scheme === 'dark' ? 'rgba(74, 222, 128, 0.15)' : 'rgba(34, 197, 94, 0.1)';
     badgeText = colors.success;
     label = 'Completed';
+    StatusIcon = CircleCheck;
   } else if (status === 'pending') {
-    badgeBg = `${colors.warning}15`;
+    badgeBg = scheme === 'dark' ? 'rgba(250, 204, 21, 0.15)' : 'rgba(234, 179, 8, 0.08)';
     badgeText = colors.warning;
     label = 'Pending';
+    StatusIcon = Clock3;
   } else if (status === 'new') {
-    badgeBg = `${colors.primary}15`;
+    badgeBg = scheme === 'dark' ? 'rgba(177, 197, 255, 0.15)' : 'rgba(9, 76, 178, 0.08)';
     badgeText = colors.primary;
     label = 'New';
+    StatusIcon = CircleAlert;
   }
+
+  // Soft border tint glow matching status
+  const cardBorderColor = scheme === 'dark'
+    ? (status === 'completed' ? 'rgba(74, 222, 128, 0.22)' : status === 'pending' ? 'rgba(250, 204, 21, 0.22)' : status === 'new' ? 'rgba(177, 197, 255, 0.22)' : 'rgba(90, 95, 99, 0.22)')
+    : (status === 'completed' ? 'rgba(34, 197, 94, 0.12)' : status === 'pending' ? 'rgba(234, 179, 8, 0.12)' : status === 'new' ? 'rgba(9, 76, 178, 0.12)' : 'rgba(90, 95, 99, 0.12)');
 
   const handlePress = () => {
     if (url) {
@@ -196,8 +207,8 @@ function SurveyCard({ survey, colors }: SurveyCardProps) {
       style={[
         styles.surveyCard,
         {
-          backgroundColor: scheme === 'dark' ? colors.surfaceContainer : colors.surfaceLowest,
-          borderColor: colors.ghostBorder,
+          backgroundColor: colors.surfaceLowest,
+          borderColor: cardBorderColor,
           borderWidth: 1,
           shadowColor: '#000',
           shadowOffset: { width: 0, height: 4 },
@@ -208,44 +219,61 @@ function SurveyCard({ survey, colors }: SurveyCardProps) {
       onPress={url ? handlePress : undefined}
       disabled={!url}
     >
-      <View style={styles.surveyHeader}>
-        <View style={styles.titleRow}>
-          {/* Circular Tinted Icon Container */}
-          <View style={[styles.iconBadge, { backgroundColor: `${colors.primary}12` }]}>
-            <ClipboardList size={14} color={colors.primary} strokeWidth={2} />
+      {/* Left accent strip */}
+      <View style={[styles.accentStrip, { backgroundColor: badgeText }]} />
+
+      {/* Card Header */}
+      <View style={styles.cardHeader}>
+        <View style={styles.cardLeft}>
+          <View style={[styles.iconCircle, { backgroundColor: scheme === 'dark' ? 'rgba(255, 255, 255, 0.05)' : 'rgba(9, 76, 178, 0.06)' }]}>
+            <ClipboardList size={20} color={colors.primary} strokeWidth={1.8} />
           </View>
-          <View style={{ flex: 1 }}>
-            <Text style={[styles.surveyTitle, { color: colors.text }]} numberOfLines={2}>{title}</Text>
+          <View style={styles.cardHeaderText}>
+            <Text style={[styles.subjectTitle, { color: colors.text }]} numberOfLines={1}>
+              {title}
+            </Text>
             {code ? (
-              <Text style={[styles.surveyCode, { color: colors.textSecondary }]}>
+              <Text style={[styles.subjectSubtitle, { color: colors.textSecondary }]}>
                 {code}
               </Text>
             ) : null}
           </View>
         </View>
-        <View style={[styles.statusBadge, { backgroundColor: badgeBg }]}>
-          <View style={[styles.statusDot, { backgroundColor: badgeText }]} />
-          <Text style={[styles.statusText, { color: badgeText }]}>{label}</Text>
+        <View style={[styles.perfBadge, { backgroundColor: badgeBg }]}>
+          <StatusIcon size={12} color={badgeText} strokeWidth={2.2} />
+          <Text style={[styles.perfBadgeText, { color: badgeText }]}>{label}</Text>
         </View>
       </View>
-      {description ? (
-        <Text style={[styles.surveyDesc, { color: colors.textSecondary }]}>{description}</Text>
-      ) : null}
 
-      <View style={styles.metaRow}>
-        {deadline ? (
-          <View style={styles.metaItem}>
-            <Clock3 size={11} color={colors.textSecondary} style={{ opacity: 0.8 }} />
-            <Text style={[styles.surveyMeta, { color: colors.textSecondary }]}>
-              Deadline: {deadline}
-            </Text>
-          </View>
-        ) : null}
-        {url ? (
-          <View style={styles.metaItem}>
-            <ExternalLink size={11} color={colors.primary} />
-            <Text style={[styles.linkHint, { color: colors.primary }]}>Open survey</Text>
-          </View>
+      {/* Card Content (Divider + Description + MetaRow) */}
+      <View style={styles.cardContent}>
+        {(description || deadline || url) ? (
+          <>
+            <View style={[styles.divider, { backgroundColor: colors.outlineVariant }]} />
+            {description ? (
+              <Text style={[styles.surveyDesc, { color: colors.textSecondary, marginBottom: (deadline || url) ? 10 : 0 }]} numberOfLines={2}>
+                {description}
+              </Text>
+            ) : null}
+            {(deadline || url) ? (
+              <View style={styles.metaRow}>
+                {deadline ? (
+                  <View style={styles.metaItem}>
+                    <Clock3 size={12} color={colors.textSecondary} style={{ opacity: 0.7 }} />
+                    <Text style={[styles.surveyMeta, { color: colors.textSecondary }]}>
+                      Deadline: {deadline}
+                    </Text>
+                  </View>
+                ) : null}
+                {url ? (
+                  <View style={[styles.metaItem, { marginLeft: 'auto' }]}>
+                    <ExternalLink size={12} color={colors.primary} />
+                    <Text style={[styles.linkHint, { color: colors.primary }]}>Open survey</Text>
+                  </View>
+                ) : null}
+              </View>
+            ) : null}
+          </>
         ) : null}
       </View>
     </AnimatedPressable>
@@ -560,63 +588,77 @@ const styles = StyleSheet.create({
     opacity: 0.8,
   },
   surveyCard: {
-    paddingHorizontal: 14,
-    paddingVertical: 10,
     borderRadius: 16,
-    gap: 8,
+    borderWidth: 1,
+    overflow: 'hidden',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
     shadowRadius: 6,
     elevation: 2,
+    position: 'relative',
+    paddingLeft: 12,
   },
-  surveyHeader: {
+  accentStrip: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    bottom: 0,
+    width: 5,
+  },
+  cardHeader: {
     flexDirection: 'row',
+    alignItems: 'center',
     justifyContent: 'space-between',
-    alignItems: 'flex-start',
+    padding: Spacing.three,
+    gap: Spacing.one,
+    minHeight: 64,
   },
-  titleRow: {
+  cardLeft: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 10,
+    alignItems: 'center',
+    gap: Spacing.three,
     flex: 1,
-    paddingRight: Spacing.two,
   },
-  iconBadge: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
+  cardHeaderText: {
+    flex: 1,
+    gap: 2,
+  },
+  subjectTitle: {
+    fontFamily: Fonts.bodyBold,
+    fontSize: 15,
+  },
+  subjectSubtitle: {
+    fontFamily: Fonts.body,
+    fontSize: 11,
+    opacity: 0.7,
+  },
+  perfBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: Roundness.full,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  perfBadgeText: {
+    fontFamily: Fonts.bodyBold,
+    fontSize: 12,
+  },
+  cardContent: {
+    paddingBottom: Spacing.two,
+    paddingHorizontal: Spacing.three,
+  },
+  divider: {
+    height: 0.5,
+    marginBottom: Spacing.two,
+  },
+  iconCircle: {
+    width: 44,
+    height: 44,
+    borderRadius: Roundness.full,
     justifyContent: 'center',
     alignItems: 'center',
-  },
-  surveyTitle: {
-    fontFamily: Fonts.bodyBold,
-    fontSize: 14,
-    lineHeight: 18,
-    letterSpacing: -0.1,
-    flex: 1,
-  },
-  surveyCode: {
-    fontFamily: Fonts.bodyMedium,
-    fontSize: 10,
-    opacity: 0.65,
-    marginTop: 1,
-  },
-  statusBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderRadius: 999,
-    paddingHorizontal: 8,
-    paddingVertical: 3.5,
-  },
-  statusText: {
-    fontFamily: Fonts.bodyMedium,
-    fontSize: 10,
-  },
-  statusDot: {
-    width: 5,
-    height: 5,
-    borderRadius: 2.5,
-    marginRight: 4,
   },
   surveyDesc: {
     fontFamily: Fonts.body,
@@ -627,18 +669,17 @@ const styles = StyleSheet.create({
   surveyMeta: {
     fontFamily: Fonts.bodyMedium,
     fontSize: 11,
-    opacity: 0.55,
+    opacity: 0.7,
   },
   linkHint: {
-    fontFamily: Fonts.bodyMedium,
+    fontFamily: Fonts.bodyBold,
     fontSize: 11,
   },
   metaRow: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
     alignItems: 'center',
     gap: 12,
-    marginTop: 0,
+    marginTop: 2,
   },
   metaItem: {
     flexDirection: 'row',

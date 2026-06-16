@@ -30,7 +30,6 @@ import {
   Clock3, 
   CircleCheck, 
   CircleAlert, 
-  BookOpen 
 } from 'lucide-react-native';
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
@@ -130,28 +129,33 @@ function AssignmentCard({ assignment, colors }: AssignmentCardProps) {
   const colorScheme = useColorScheme();
   const scheme = colorScheme === 'dark' ? 'dark' : 'light';
 
-  // Determine badge colors based on status
+  // Determine badge colors and icons based on status
   let badgeBg = 'rgba(90, 95, 99, 0.08)';
   let badgeText = colors.secondary;
   let label = 'Unknown';
   let StatusIcon = CircleAlert;
 
   if (status === 'submitted') {
-    badgeBg = `${colors.success}15`;
-    badgeText = colors.success;
+    badgeBg = scheme === 'dark' ? 'rgba(16, 185, 129, 0.15)' : 'rgba(16, 185, 129, 0.1)';
+    badgeText = '#10b981';
     label = 'Submitted';
     StatusIcon = CircleCheck;
   } else if (status === 'pending') {
-    badgeBg = `${colors.primary}15`;
+    badgeBg = scheme === 'dark' ? 'rgba(9, 76, 178, 0.15)' : 'rgba(9, 76, 178, 0.08)';
     badgeText = colors.primary;
     label = 'Pending';
     StatusIcon = Clock3;
   } else if (status === 'overdue') {
-    badgeBg = `${colors.error}15`;
-    badgeText = colors.error;
+    badgeBg = scheme === 'dark' ? 'rgba(239, 68, 68, 0.15)' : 'rgba(239, 68, 68, 0.1)';
+    badgeText = '#ef4444';
     label = 'Overdue';
     StatusIcon = CircleAlert;
   }
+
+  // Soft border tint glow matching status
+  const cardBorderColor = scheme === 'dark'
+    ? (status === 'submitted' ? 'rgba(16, 185, 129, 0.22)' : status === 'pending' ? 'rgba(9, 76, 178, 0.22)' : 'rgba(239, 68, 68, 0.22)')
+    : (status === 'submitted' ? 'rgba(16, 185, 129, 0.12)' : status === 'pending' ? 'rgba(9, 76, 178, 0.12)' : 'rgba(239, 68, 68, 0.12)');
 
   // Hardware-accelerated spring animations for micro-interactions
   const scale = useSharedValue(1);
@@ -186,8 +190,8 @@ function AssignmentCard({ assignment, colors }: AssignmentCardProps) {
       style={[
         styles.assignCard,
         {
-          backgroundColor: scheme === 'dark' ? colors.surfaceContainer : colors.surfaceLowest,
-          borderColor: colors.ghostBorder,
+          backgroundColor: colors.surfaceLowest,
+          borderColor: cardBorderColor,
           borderWidth: 1,
           shadowColor: '#000',
           shadowOffset: { width: 0, height: 4 },
@@ -196,40 +200,35 @@ function AssignmentCard({ assignment, colors }: AssignmentCardProps) {
         animatedStyle
       ]}
     >
-      <View style={styles.assignHeader}>
-        <View style={styles.titleRow}>
-          {/* Circular Tinted Icon Badge Container */}
-          <View style={[styles.iconBadge, { backgroundColor: `${colors.primary}12` }]}>
-            <FileText size={14} color={colors.primary} strokeWidth={2} />
+      {/* Left accent strip */}
+      <View style={[styles.accentStrip, { backgroundColor: badgeText }]} />
+
+      {/* Card Header */}
+      <View style={styles.cardHeader}>
+        <View style={styles.cardLeft}>
+          <View style={[styles.iconCircle, { backgroundColor: scheme === 'dark' ? 'rgba(255, 255, 255, 0.05)' : 'rgba(9, 76, 178, 0.06)' }]}>
+            <FileText size={20} color={colors.primary} strokeWidth={1.8} />
           </View>
-          <View style={{ flex: 1 }}>
-            <Text style={[styles.assignTitle, { color: colors.text }]} numberOfLines={2}>
+          <View style={styles.cardHeaderText}>
+            <Text style={[styles.subjectTitle, { color: colors.text }]} numberOfLines={1}>
               {title}
             </Text>
-            {code ? (
-              <Text style={[styles.assignCode, { color: colors.textSecondary }]}>
-                {code}
-              </Text>
-            ) : null}
+            <Text style={[styles.subjectSubtitle, { color: colors.textSecondary }]}>
+              {code ? `${code} • ` : ''}{subject}
+            </Text>
           </View>
         </View>
-        <View style={[styles.statusBadge, { backgroundColor: badgeBg }]}>
-          <StatusIcon size={10} color={badgeText} style={{ marginRight: 3 }} strokeWidth={2.5} />
-          <Text style={[styles.statusText, { color: badgeText }]}>{label}</Text>
+        <View style={[styles.perfBadge, { backgroundColor: badgeBg }]}>
+          <StatusIcon size={12} color={badgeText} strokeWidth={2.2} />
+          <Text style={[styles.perfBadgeText, { color: badgeText }]}>{label}</Text>
         </View>
       </View>
 
-      <View style={styles.metaRow}>
-        {subject ? (
-          <View style={styles.metaItem}>
-            <BookOpen size={11} color={colors.textSecondary} style={{ opacity: 0.8 }} />
-            <Text style={[styles.metaText, { color: colors.textSecondary }]} numberOfLines={1}>
-              {subject}
-            </Text>
-          </View>
-        ) : null}
-        <View style={styles.metaItem}>
-          <Clock3 size={11} color={colors.textSecondary} style={{ opacity: 0.8 }} />
+      {/* Card Content (Divider + Due Date) */}
+      <View style={styles.cardContent}>
+        <View style={[styles.divider, { backgroundColor: colors.outlineVariant }]} />
+        <View style={styles.metaRow}>
+          <Clock3 size={12} color={colors.textSecondary} style={{ opacity: 0.7 }} />
           <Text style={[styles.assignMeta, { color: colors.textSecondary }]}>
             Due: {dueDate}
           </Text>
@@ -522,79 +521,88 @@ const styles = StyleSheet.create({
     maxWidth: 280,
   },
   assignCard: {
-    paddingHorizontal: 14,
-    paddingVertical: 10,
     borderRadius: 16,
-    gap: 8,
+    borderWidth: 1,
+    overflow: 'hidden',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
     shadowRadius: 6,
     elevation: 2,
+    position: 'relative',
+    paddingLeft: 12,
   },
-  assignHeader: {
+  accentStrip: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    bottom: 0,
+    width: 5,
+  },
+  cardHeader: {
     flexDirection: 'row',
+    alignItems: 'center',
     justifyContent: 'space-between',
-    alignItems: 'flex-start',
+    padding: Spacing.three,
+    gap: Spacing.one,
+    minHeight: 64,
   },
-  titleRow: {
+  cardLeft: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 10,
-    flex: 1,
-    paddingRight: Spacing.two,
-  },
-  iconBadge: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    justifyContent: 'center',
     alignItems: 'center',
+    gap: Spacing.three,
+    flex: 1,
   },
-  assignTitle: {
+  cardHeaderText: {
+    flex: 1,
+    gap: 2,
+  },
+  subjectTitle: {
     fontFamily: Fonts.bodyBold,
-    fontSize: 14,
-    lineHeight: 18,
-    letterSpacing: -0.1,
-    flex: 1,
+    fontSize: 15,
   },
-  assignCode: {
-    fontFamily: Fonts.bodyMedium,
-    fontSize: 10,
-    opacity: 0.65,
-    marginTop: 1,
-  },
-  statusBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderRadius: 999,
-    paddingHorizontal: 8,
-    paddingVertical: 3.5,
-  },
-  statusText: {
-    fontFamily: Fonts.bodyMedium,
-    fontSize: 10,
-  },
-  assignMeta: {
-    fontFamily: Fonts.bodyMedium,
+  subjectSubtitle: {
+    fontFamily: Fonts.body,
     fontSize: 11,
-    opacity: 0.55,
+    opacity: 0.7,
   },
-  metaRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    alignItems: 'center',
-    gap: 12,
-    marginTop: 0,
-  },
-  metaItem: {
+  perfBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: Roundness.full,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
   },
-  metaText: {
+  perfBadgeText: {
+    fontFamily: Fonts.bodyBold,
+    fontSize: 12,
+  },
+  cardContent: {
+    paddingBottom: Spacing.two,
+    paddingHorizontal: Spacing.three,
+  },
+  divider: {
+    height: 0.5,
+    marginBottom: Spacing.two,
+  },
+  metaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 2,
+  },
+  assignMeta: {
     fontFamily: Fonts.bodyMedium,
     fontSize: 11,
-    opacity: 0.75,
+    opacity: 0.7,
+  },
+  iconCircle: {
+    width: 44,
+    height: 44,
+    borderRadius: Roundness.full,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   centerContainer: {
     flex: 1,
@@ -629,3 +637,4 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
 });
+
