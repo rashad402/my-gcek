@@ -141,7 +141,7 @@ export function ProfileButton() {
       {/* Bottom Sheet Modal */}
       <BottomSheetModal
         ref={bottomSheetModalRef}
-        snapPoints={['54%']}
+        snapPoints={['60%']}
         backdropComponent={renderBackdrop}
         enablePanDownToClose
         backgroundStyle={{ backgroundColor: colors.background }}
@@ -208,6 +208,25 @@ export function ProfileButton() {
                     { text: 'Reset Password', onPress: () => Linking.openURL('https://gcek.etlab.in/user/resetpassword') }
                   ]
                 );
+              }}
+              colors={colors}
+            />
+            <MenuRow
+              icon="bug-outline"
+              label="Report a Bug"
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+                const recipient = 'rashadtens402@gmail.com';
+                const subject = encodeURIComponent('GCEK Portal App - Bug Report');
+                const body = encodeURIComponent(
+                  `Hi Rashad,\n\nI encountered a bug in the app.\n\nDescription of the bug:\n[Enter bug details here]\n\nUsername: ${username || 'N/A'}\nStudent ID: ${studentId || 'N/A'}`
+                );
+                Linking.openURL(`mailto:${recipient}?subject=${subject}&body=${body}`).catch(() => {
+                  Alert.alert(
+                    'Email Client Error',
+                    `Unable to open email client automatically. Please email your bug report directly to ${recipient}.`
+                  );
+                });
               }}
               colors={colors}
             />
