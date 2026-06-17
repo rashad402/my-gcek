@@ -26,10 +26,9 @@ import Animated, {
 } from 'react-native-reanimated';
 import Toast from 'react-native-toast-message';
 
-const toSentenceCase = (str: string): string => {
+const toTitleCase = (str: string): string => {
   if (!str) return '';
   let cleaned = str.trim().toLowerCase();
-  cleaned = cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
 
   const acronyms = [
     'ai', 'ml', 'dbms', 'sql', 'it', 'ktu', 'cse', 'ece', 'eee', 'me', 'ce', 'mca', 'btech', 'gcek',
@@ -37,7 +36,7 @@ const toSentenceCase = (str: string): string => {
   ];
   
   const words = cleaned.split(/\s+/);
-  const mappedWords = words.map((word, index) => {
+  const mappedWords = words.map((word) => {
     const cleanWord = word.replace(/[^a-zA-Z]/g, '').toLowerCase();
     if (acronyms.includes(cleanWord)) {
       const idx = acronyms.indexOf(cleanWord);
@@ -52,7 +51,7 @@ const toSentenceCase = (str: string): string => {
       
       return word.replace(/[a-zA-Z]+/g, (m) => {
         if (m.toLowerCase() === cleanWord) {
-          return index === 0 ? proper.charAt(0).toUpperCase() + proper.slice(1) : proper;
+          return proper;
         }
         return m;
       });
@@ -60,7 +59,7 @@ const toSentenceCase = (str: string): string => {
     if (/^[ivx]+$/i.test(cleanWord)) {
       return word.replace(/[a-zA-Z]+/g, (m) => m.toUpperCase());
     }
-    return word;
+    return word.charAt(0).toUpperCase() + word.slice(1);
   });
 
   return mappedWords.join(' ');
@@ -327,7 +326,7 @@ function SubjectResultCard({ subject, subjectName, results, colors, index }: Sub
     ? (percentage >= 75 ? 'rgba(16, 185, 129, 0.22)' : percentage >= 50 ? 'rgba(245, 158, 11, 0.22)' : 'rgba(239, 68, 68, 0.22)')
     : (percentage >= 75 ? 'rgba(16, 185, 129, 0.12)' : percentage >= 50 ? 'rgba(245, 158, 11, 0.12)' : 'rgba(239, 68, 68, 0.12)');
 
-  const displayTitle = subjectName ? toSentenceCase(subjectName) : subject.toUpperCase();
+  const displayTitle = subjectName ? toTitleCase(subjectName) : subject.toUpperCase();
 
   return (
     <Animated.View 
@@ -395,7 +394,7 @@ function SubjectResultCard({ subject, subjectName, results, colors, index }: Sub
                 <View style={styles.resultRow}>
                   <View style={styles.resultInfo}>
                     <Text style={[styles.examName, { color: colors.text }]}>
-                      {res.name.trim() ? toSentenceCase(res.name) : 'Sessional Marks'}
+                      {res.name.trim() ? toTitleCase(res.name) : 'Sessional Marks'}
                     </Text>
                     {res.grade ? (
                       <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4, gap: 6 }}>

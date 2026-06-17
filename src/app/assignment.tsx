@@ -40,10 +40,9 @@ const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 /**
  * Utility function to parse system coursework titles into clean readable names (in Sentence case) and course codes.
  */
-function toSentenceCase(str: string): string {
+function toTitleCase(str: string): string {
   if (!str) return '';
   let cleaned = str.trim().toLowerCase();
-  cleaned = cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
 
   const acronyms = [
     'ai', 'ml', 'dbms', 'sql', 'it', 'ktu', 'cse', 'ece', 'eee', 'me', 'ce', 'mca', 'btech', 'gcek',
@@ -51,7 +50,7 @@ function toSentenceCase(str: string): string {
   ];
   
   const words = cleaned.split(/\s+/);
-  const mappedWords = words.map((word, index) => {
+  const mappedWords = words.map((word) => {
     const cleanWord = word.replace(/[^a-zA-Z]/g, '').toLowerCase();
     if (acronyms.includes(cleanWord)) {
       const idx = acronyms.indexOf(cleanWord);
@@ -66,7 +65,7 @@ function toSentenceCase(str: string): string {
       
       return word.replace(/[a-zA-Z]+/g, (m) => {
         if (m.toLowerCase() === cleanWord) {
-          return index === 0 ? proper.charAt(0).toUpperCase() + proper.slice(1) : proper;
+          return proper;
         }
         return m;
       });
@@ -74,7 +73,7 @@ function toSentenceCase(str: string): string {
     if (/^[ivx]+$/i.test(cleanWord)) {
       return word.replace(/[a-zA-Z]+/g, (m) => m.toUpperCase());
     }
-    return word;
+    return word.charAt(0).toUpperCase() + word.slice(1);
   });
 
   return mappedWords.join(' ');
@@ -154,15 +153,15 @@ function getCleanTitleAndCode(rawTitle: string, rawSubjectCol: string) {
     courseName = getSubjectName(courseCode);
   }
 
-  const cleanTitle = toSentenceCase(titlePart || 'Assignment');
+  const cleanTitle = toTitleCase(titlePart || 'Assignment');
   const cleanCode = courseCode ? courseCode.toUpperCase() : '';
-  const cleanCourseName = courseName ? toSentenceCase(courseName) : '';
+  const cleanCourseName = courseName ? toTitleCase(courseName) : '';
 
   return {
     title: cleanTitle,
     code: cleanCode,
     courseName: cleanCourseName,
-    semester: semester ? toSentenceCase(semester) : ''
+    semester: semester ? toTitleCase(semester) : ''
   };
 }
 
@@ -244,7 +243,7 @@ function AssignmentCard({ assignment, colors }: AssignmentCardProps) {
   const scheme = colorScheme === 'dark' ? 'dark' : 'light';
 
   // Strip code from courseName and format it nicely
-  const displayCourseName = toSentenceCase(cleanCourseName(courseName || subject, code));
+  const displayCourseName = toTitleCase(cleanCourseName(courseName || subject, code));
   const displayAssignmentTitle = title || 'Assignment';
 
   // Determine badge colors and icons based on status
@@ -279,10 +278,6 @@ function AssignmentCard({ assignment, colors }: AssignmentCardProps) {
     ? (status === 'submitted' ? 'rgba(16, 185, 129, 0.55)' : status === 'pending' ? 'rgba(9, 76, 178, 0.55)' : status === 'overdue' ? 'rgba(239, 68, 68, 0.55)' : 'rgba(90, 95, 99, 0.55)')
     : (status === 'submitted' ? 'rgba(16, 185, 129, 0.35)' : status === 'pending' ? 'rgba(9, 76, 178, 0.35)' : status === 'overdue' ? 'rgba(239, 68, 68, 0.35)' : 'rgba(90, 95, 99, 0.35)');
 
-  // Left icon circle background status color tint
-  const iconCircleBg = scheme === 'dark'
-    ? (status === 'submitted' ? 'rgba(16, 185, 129, 0.15)' : status === 'pending' ? 'rgba(9, 76, 178, 0.15)' : 'rgba(239, 68, 68, 0.15)')
-    : (status === 'submitted' ? 'rgba(16, 185, 129, 0.08)' : status === 'pending' ? 'rgba(9, 76, 178, 0.08)' : 'rgba(239, 68, 68, 0.08)');
 
   // Dynamic relative urgency date parsing
   const urgency = getRelativeUrgency(dueDate, status === 'overdue', status === 'submitted');
@@ -340,51 +335,59 @@ function AssignmentCard({ assignment, colors }: AssignmentCardProps) {
           backgroundColor: colors.surfaceLowest,
           borderWidth: 1,
           shadowColor: '#000',
-          shadowOffset: { width: 0, height: 4 },
+          shadowOffset: { width: 0, height: 2 },
         },
         animatedStyle
       ]}
     >
+      {/* Background Watermark Icon */}
+      <View style={styles.watermarkContainer} pointerEvents="none">
+        <FileText 
+          size={76} 
+          color={badgeText} 
+          strokeWidth={0.8}
+        />
+      </View>
+
       {/* Left accent strip */}
       <View style={[styles.accentStrip, { backgroundColor: badgeText }]} />
 
-      {/* Card Header */}
-      <View style={styles.cardHeader}>
-        <View style={styles.cardLeft}>
-          <View style={[styles.iconCircle, { backgroundColor: iconCircleBg }]}>
-            <FileText size={20} color={badgeText} strokeWidth={1.8} />
-          </View>
-          <View style={styles.cardHeaderText}>
+      <View style={styles.cardInner}>
+        {/* Header: Code & Status */}
+        <View style={styles.gridHeader}>
+          <View style={styles.headerLeft}>
+            <FileText size={11} color={colors.textSecondary} style={{ opacity: 0.6 }} />
             {code ? (
-              <View style={[styles.codeBadge, { backgroundColor: scheme === 'dark' ? 'rgba(255, 255, 255, 0.08)' : 'rgba(9, 76, 178, 0.06)' }]}>
-                <Text style={[styles.codeBadgeText, { color: colors.primary }]}>
+              <View style={[styles.codeBadgeGrid, { backgroundColor: scheme === 'dark' ? 'rgba(255, 255, 255, 0.08)' : 'rgba(9, 76, 178, 0.06)' }]}>
+                <Text style={[styles.codeBadgeTextGrid, { color: colors.primary }]}>
                   {code.toUpperCase()}
                 </Text>
               </View>
             ) : null}
-            <Text style={[styles.subjectTitle, { color: colors.text }]} numberOfLines={1}>
-              {displayCourseName}
-            </Text>
-            {displayAssignmentTitle ? (
-              <Text style={[styles.subjectSubtitle, { color: colors.textSecondary }]}>
-                {displayAssignmentTitle}
-              </Text>
-            ) : null}
+          </View>
+          <View style={[styles.statusBadgeGrid, { backgroundColor: badgeBg }]}>
+            <StatusIcon size={9} color={badgeText} strokeWidth={2.5} />
+            <Text style={[styles.statusBadgeTextGrid, { color: badgeText }]}>{label}</Text>
           </View>
         </View>
-        <View style={[styles.perfBadge, { backgroundColor: badgeBg }]}>
-          <StatusIcon size={12} color={badgeText} strokeWidth={2.2} />
-          <Text style={[styles.perfBadgeText, { color: badgeText }]}>{label}</Text>
-        </View>
-      </View>
 
-      {/* Card Content (Divider + Due Date) */}
-      <View style={styles.cardContent}>
-        <View style={[styles.divider, { backgroundColor: colors.outlineVariant }]} />
-        <View style={styles.metaRow}>
-          <Clock3 size={12} color={urgency.color} style={{ opacity: 0.8 }} />
-          <Text style={[styles.assignMeta, { color: urgency.color, fontFamily: Fonts.bodyMedium }]}>
-            {urgency.text}
+        {/* Content: Course & Title */}
+        <View style={styles.gridContent}>
+          <Text style={[styles.courseTitleGrid, { color: colors.text }]} numberOfLines={2}>
+            {displayCourseName}
+          </Text>
+          {displayAssignmentTitle ? (
+            <Text style={[styles.assignmentTitleGrid, { color: colors.textSecondary }]} numberOfLines={2}>
+              {displayAssignmentTitle}
+            </Text>
+          ) : null}
+        </View>
+
+        {/* Footer: Due date */}
+        <View style={styles.gridFooter}>
+          <Clock3 size={10} color={urgency.color} style={{ marginRight: 4, opacity: 0.8 }} />
+          <Text style={[styles.dueTextGrid, { color: urgency.color }]} numberOfLines={1}>
+            {urgency.label === 'Done' ? 'Submitted' : urgency.text}
           </Text>
         </View>
       </View>
@@ -562,11 +565,17 @@ export default function AssignmentScreen() {
                 </Text>
               </View>
             ) : (
-              filteredAssignments.map((item, idx) => (
-                <Animated.View key={idx} entering={FadeInDown.delay(idx * 40).springify()}>
-                  <AssignmentCard assignment={item} colors={colors} />
-                </Animated.View>
-              ))
+              <View style={styles.gridContainer}>
+                {filteredAssignments.map((item, idx) => (
+                  <Animated.View 
+                    key={idx} 
+                    entering={FadeInDown.delay(idx * 40).springify()}
+                    style={styles.gridItem}
+                  >
+                    <AssignmentCard assignment={item} colors={colors} />
+                  </Animated.View>
+                ))}
+              </View>
             )}
           </ScrollView>
         )}
@@ -674,102 +683,104 @@ const styles = StyleSheet.create({
     opacity: 0.8,
     maxWidth: 280,
   },
+  gridContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    rowGap: 12,
+    columnGap: 12,
+    justifyContent: 'space-between',
+    paddingHorizontal: 2,
+  },
+  gridItem: {
+    width: '48%',
+  },
+  watermarkContainer: {
+    position: 'absolute',
+    right: -15,
+    bottom: -15,
+    opacity: 0.05,
+  },
+  headerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
   assignCard: {
-    borderRadius: 16,
+    borderRadius: 14,
     borderWidth: 1,
     overflow: 'hidden',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.04,
-    shadowRadius: 6,
+    shadowOpacity: 0.03,
+    shadowRadius: 4,
     elevation: 2,
     position: 'relative',
-    paddingLeft: 12,
+    paddingLeft: 8,
+    flex: 1,
   },
   accentStrip: {
     position: 'absolute',
     left: 0,
     top: 0,
     bottom: 0,
-    width: 5,
+    width: 3,
   },
-  cardHeader: {
+  cardInner: {
+    padding: 10,
+    gap: 8,
+  },
+  gridHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    padding: Spacing.three,
-    gap: Spacing.one,
-    minHeight: 64,
-  },
-  cardLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.three,
-    flex: 1,
-  },
-  cardHeaderText: {
-    flex: 1,
-    gap: 3,
-  },
-  codeBadge: {
-    alignSelf: 'flex-start',
-    paddingHorizontal: 6,
-    paddingVertical: 2.5,
-    borderRadius: 6,
-    marginBottom: 2,
-  },
-  codeBadgeText: {
-    fontFamily: Fonts.bodyBold,
-    fontSize: 9,
-    letterSpacing: 0.5,
-    textTransform: 'uppercase',
-  },
-  subjectTitle: {
-    fontFamily: Fonts.bodyBold,
-    fontSize: 15,
-  },
-  subjectSubtitle: {
-    fontFamily: Fonts.body,
-    fontSize: 11,
-    opacity: 0.7,
-  },
-  perfBadge: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: Roundness.full,
-    flexDirection: 'row',
-    alignItems: 'center',
     gap: 4,
   },
-  perfBadgeText: {
+  codeBadgeGrid: {
+    paddingHorizontal: 4,
+    paddingVertical: 1.5,
+    borderRadius: 4,
+  },
+  codeBadgeTextGrid: {
     fontFamily: Fonts.bodyBold,
-    fontSize: 12,
+    fontSize: 8,
+    letterSpacing: 0.3,
+    textTransform: 'uppercase',
   },
-  cardContent: {
-    paddingBottom: Spacing.two,
-    paddingHorizontal: Spacing.three,
-  },
-  divider: {
-    height: 0.5,
-    marginBottom: Spacing.two,
-  },
-  metaRow: {
+  statusBadgeGrid: {
+    paddingHorizontal: 6,
+    paddingVertical: 2.5,
+    borderRadius: Roundness.full,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    marginTop: 2,
+    gap: 2.5,
   },
-  assignMeta: {
-    fontFamily: Fonts.bodyMedium,
-    fontSize: 11,
+  statusBadgeTextGrid: {
+    fontFamily: Fonts.bodyBold,
+    fontSize: 9,
+  },
+  gridContent: {
+    gap: 4,
+    minHeight: 68,
+  },
+  courseTitleGrid: {
+    fontFamily: Fonts.bodyBold,
+    fontSize: 12.5,
+    lineHeight: 16,
+  },
+  assignmentTitleGrid: {
+    fontFamily: Fonts.body,
+    fontSize: 10.5,
+    lineHeight: 14,
     opacity: 0.7,
   },
-  iconCircle: {
-    width: 44,
-    height: 44,
-    borderRadius: Roundness.full,
-    justifyContent: 'center',
+  gridFooter: {
+    flexDirection: 'row',
     alignItems: 'center',
+    marginTop: 'auto',
+  },
+  dueTextGrid: {
+    fontFamily: Fonts.bodyMedium,
+    fontSize: 10,
   },
   centerContainer: {
     flex: 1,

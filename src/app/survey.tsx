@@ -43,10 +43,9 @@ const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 /**
  * Utility function to parse system survey titles into clean readable names (in Sentence case) and course codes.
  */
-function toSentenceCase(str: string): string {
+function toTitleCase(str: string): string {
   if (!str) return '';
   let cleaned = str.trim().toLowerCase();
-  cleaned = cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
 
   const acronyms = [
     'ai', 'ml', 'dbms', 'sql', 'it', 'ktu', 'cse', 'ece', 'eee', 'me', 'ce', 'mca', 'btech', 'gcek',
@@ -54,7 +53,7 @@ function toSentenceCase(str: string): string {
   ];
   
   const words = cleaned.split(/\s+/);
-  const mappedWords = words.map((word, index) => {
+  const mappedWords = words.map((word) => {
     const cleanWord = word.replace(/[^a-zA-Z]/g, '').toLowerCase();
     if (acronyms.includes(cleanWord)) {
       const idx = acronyms.indexOf(cleanWord);
@@ -69,7 +68,7 @@ function toSentenceCase(str: string): string {
       
       return word.replace(/[a-zA-Z]+/g, (m) => {
         if (m.toLowerCase() === cleanWord) {
-          return index === 0 ? proper.charAt(0).toUpperCase() + proper.slice(1) : proper;
+          return proper;
         }
         return m;
       });
@@ -77,7 +76,7 @@ function toSentenceCase(str: string): string {
     if (/^[ivx]+$/i.test(cleanWord)) {
       return word.replace(/[a-zA-Z]+/g, (m) => m.toUpperCase());
     }
-    return word;
+    return word.charAt(0).toUpperCase() + word.slice(1);
   });
 
   return mappedWords.join(' ');
@@ -157,15 +156,15 @@ function getCleanTitleAndCode(rawTitle: string, rawSubjectCol: string) {
     courseName = getSubjectName(courseCode);
   }
 
-  const cleanTitle = toSentenceCase(titlePart || 'Survey');
+  const cleanTitle = toTitleCase(titlePart || 'Survey');
   const cleanCode = courseCode ? courseCode.toUpperCase() : '';
-  const cleanCourseName = courseName ? toSentenceCase(courseName) : '';
+  const cleanCourseName = courseName ? toTitleCase(courseName) : '';
 
   return {
     title: cleanTitle,
     code: cleanCode,
     courseName: cleanCourseName,
-    semester: semester ? toSentenceCase(semester) : ''
+    semester: semester ? toTitleCase(semester) : ''
   };
 }
 
@@ -248,7 +247,7 @@ function SurveyCard({ survey, colors }: SurveyCardProps) {
 
   // Strip code from courseName and format it nicely
   const displayCourseName = courseName 
-    ? toSentenceCase(cleanCourseName(courseName, code)) 
+    ? toTitleCase(cleanCourseName(courseName, code)) 
     : (title || 'Survey');
   const displaySurveyTitle = courseName ? (title || 'Survey') : '';
 
