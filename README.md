@@ -105,7 +105,6 @@ Once started, scan the QR code using your phone's camera (iOS) or the **Expo Go*
 
 ```text
 ├── assets/             # Image resources, app launcher icons, and branding logo
-├── scripts/            # Build helper scripts
 ├── src/
 │   ├── app/            # App routes (tab layouts & page view screens)
 │   │   ├── _layout.tsx # Main navigation provider
