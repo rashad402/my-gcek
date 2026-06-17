@@ -27,7 +27,6 @@ import Animated, {
   useSharedValue, 
   useAnimatedStyle, 
   withSpring,
-  interpolate,
   interpolateColor
 } from 'react-native-reanimated';
 import { 
@@ -276,15 +275,6 @@ function SurveyCard({ survey, colors }: SurveyCardProps) {
     StatusIcon = CircleAlert;
   }
 
-  // Soft border tint glow matching status
-  const borderStart = scheme === 'dark'
-    ? (status === 'completed' ? 'rgba(74, 222, 128, 0.22)' : status === 'pending' ? 'rgba(250, 204, 21, 0.22)' : status === 'new' ? 'rgba(177, 197, 255, 0.22)' : 'rgba(90, 95, 99, 0.22)')
-    : (status === 'completed' ? 'rgba(34, 197, 94, 0.12)' : status === 'pending' ? 'rgba(234, 179, 8, 0.12)' : status === 'new' ? 'rgba(9, 76, 178, 0.12)' : 'rgba(90, 95, 99, 0.12)');
-
-  const borderEnd = scheme === 'dark'
-    ? (status === 'completed' ? 'rgba(74, 222, 128, 0.55)' : status === 'pending' ? 'rgba(250, 204, 21, 0.55)' : status === 'new' ? 'rgba(177, 197, 255, 0.55)' : 'rgba(90, 95, 99, 0.55)')
-    : (status === 'completed' ? 'rgba(34, 197, 94, 0.35)' : status === 'pending' ? 'rgba(234, 179, 8, 0.35)' : status === 'new' ? 'rgba(9, 76, 178, 0.35)' : 'rgba(90, 95, 99, 0.35)');
-
   // Dynamic relative urgency date parsing
   const urgency = getRelativeUrgency(deadline, false, status === 'completed');
 
@@ -300,14 +290,12 @@ function SurveyCard({ survey, colors }: SurveyCardProps) {
   // Reanimated spring values for micro-interactions
   const scale = useSharedValue(1);
   const opacity = useSharedValue(1);
-  const shadow = useSharedValue(2);
   const glowProgress = useSharedValue(0);
 
   const handlePressIn = () => {
     if (url) {
-      scale.value = withSpring(0.985, { damping: 15, stiffness: 300 });
-      opacity.value = withSpring(0.96, { damping: 15, stiffness: 300 });
-      shadow.value = withSpring(3, { damping: 15, stiffness: 300 });
+      scale.value = withSpring(0.99, { damping: 15, stiffness: 300 });
+      opacity.value = withSpring(0.97, { damping: 15, stiffness: 300 });
       glowProgress.value = withSpring(1, { damping: 15, stiffness: 300 });
     }
   };
@@ -316,31 +304,24 @@ function SurveyCard({ survey, colors }: SurveyCardProps) {
     if (url) {
       scale.value = withSpring(1, { damping: 15, stiffness: 300 });
       opacity.value = withSpring(1, { damping: 15, stiffness: 300 });
-      shadow.value = withSpring(2, { damping: 15, stiffness: 300 });
       glowProgress.value = withSpring(0, { damping: 15, stiffness: 300 });
     }
   };
 
   const animatedStyle = useAnimatedStyle(() => {
-    const borderColor = interpolateColor(
+    const backgroundColor = interpolateColor(
       glowProgress.value,
       [0, 1],
-      [borderStart, borderEnd]
+      [
+        scheme === 'dark' ? 'rgba(255, 255, 255, 0)' : 'rgba(9, 76, 178, 0)',
+        scheme === 'dark' ? 'rgba(255, 255, 255, 0.08)' : 'rgba(9, 76, 178, 0.06)'
+      ]
     );
 
-    const shadowOpacityVal = scheme === 'dark'
-      ? interpolate(glowProgress.value, [0, 1], [0.15, 0.35])
-      : interpolate(glowProgress.value, [0, 1], [0.04, 0.12]);
-
-    const shadowRadiusVal = interpolate(glowProgress.value, [0, 1], [6, 12]);
-
     return {
+      backgroundColor: backgroundColor,
       transform: [{ scale: scale.value }],
       opacity: opacity.value,
-      borderColor: borderColor,
-      shadowOpacity: shadowOpacityVal,
-      shadowRadius: shadowRadiusVal,
-      elevation: shadow.value,
     };
   });
 
@@ -350,19 +331,11 @@ function SurveyCard({ survey, colors }: SurveyCardProps) {
       onPressOut={handlePressOut}
       style={[
         styles.surveyCard,
-        {
-          backgroundColor: colors.surfaceLowest,
-          borderWidth: 1,
-          shadowColor: '#000',
-          shadowOffset: { width: 0, height: 2 },
-        },
         animatedStyle
       ]}
       onPress={url ? handlePress : undefined}
       disabled={!url}
     >
-      {/* Left accent strip */}
-      <View style={[styles.accentStrip, { backgroundColor: badgeText }]} />
 
       {/* Main Row Content */}
       <View style={styles.listItemContent}>
@@ -596,11 +569,16 @@ export default function SurveyScreen() {
                 </Text>
               </View>
             ) : (
-              filteredSurveys.map((item, idx) => (
-                <Animated.View key={idx} entering={FadeInDown.delay(idx * 40).springify()}>
-                  <SurveyCard survey={item} colors={colors} />
-                </Animated.View>
-              ))
+              <View style={styles.listWrapper}>
+                {filteredSurveys.map((item, idx) => (
+                  <Animated.View key={idx} entering={FadeInDown.delay(idx * 40).springify()}>
+                    <SurveyCard survey={item} colors={colors} />
+                    {idx < filteredSurveys.length - 1 && (
+                      <View style={[styles.listDivider, { backgroundColor: colors.outlineVariant }]} />
+                    )}
+                  </Animated.View>
+                ))}
+              </View>
             )}
 
             {/* Info card */}
@@ -730,31 +708,25 @@ const styles = StyleSheet.create({
     flex: 1,
     opacity: 0.8,
   },
-  surveyCard: {
-    borderRadius: 12,
-    borderWidth: 1,
+  listWrapper: {
+    borderRadius: 16,
     overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.02,
-    shadowRadius: 3,
-    elevation: 1.5,
-    position: 'relative',
-    paddingLeft: 12,
   },
-  accentStrip: {
-    position: 'absolute',
-    left: 0,
-    top: 0,
-    bottom: 0,
-    width: 4,
+  listDivider: {
+    height: 1,
+    opacity: 0.3,
+    marginHorizontal: 12,
+  },
+  surveyCard: {
+    overflow: 'hidden',
+    borderRadius: 8,
+    paddingHorizontal: 12,
   },
   listItemContent: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: 10,
-    paddingRight: 10,
+    paddingVertical: 12,
   },
   listItemLeft: {
     flex: 1,
