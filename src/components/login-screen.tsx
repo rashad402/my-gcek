@@ -145,11 +145,13 @@ export default function LoginScreen() {
                 start={{ x: 0.5, y: 0 }}
                 end={{ x: 0.5, y: 1 }}
               />
-              <Image
-                source={require('@/assets/images/my-gcek-logo.png')}
-                style={styles.logo}
-                resizeMode="contain"
-              />
+              <View style={styles.logoContainer}>
+                <Image
+                  source={require('../../assets/images/my-gcek-logo.png')}
+                  style={styles.logo}
+                  resizeMode="contain"
+                />
+              </View>
               <Text style={[styles.title, { color: colors.text }]}>Welcome to My GCEK</Text>
             </View>
 
@@ -375,12 +377,26 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
     zIndex: -1,
   },
-  logo: {
+  logoContainer: {
     width: 80,
     height: 80,
     borderRadius: 40,
+    backgroundColor: '#ffffff',
+    justifyContent: 'center',
+    alignItems: 'center',
     overflow: 'hidden',
     marginBottom: Spacing.three,
+    // Add subtle shadow for premium depth
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  logo: {
+    width: 76,
+    height: 76,
+    borderRadius: 38,
   },
   title: {
     fontFamily: Fonts.headlineBold,
