@@ -285,11 +285,6 @@ function SurveyCard({ survey, colors }: SurveyCardProps) {
     ? (status === 'completed' ? 'rgba(74, 222, 128, 0.55)' : status === 'pending' ? 'rgba(250, 204, 21, 0.55)' : status === 'new' ? 'rgba(177, 197, 255, 0.55)' : 'rgba(90, 95, 99, 0.55)')
     : (status === 'completed' ? 'rgba(34, 197, 94, 0.35)' : status === 'pending' ? 'rgba(234, 179, 8, 0.35)' : status === 'new' ? 'rgba(9, 76, 178, 0.35)' : 'rgba(90, 95, 99, 0.35)');
 
-  // Left icon circle background status color tint
-  const iconCircleBg = scheme === 'dark'
-    ? (status === 'completed' ? 'rgba(74, 222, 128, 0.15)' : status === 'pending' ? 'rgba(250, 204, 21, 0.15)' : 'rgba(177, 197, 255, 0.15)')
-    : (status === 'completed' ? 'rgba(34, 197, 94, 0.08)' : status === 'pending' ? 'rgba(234, 179, 8, 0.08)' : 'rgba(9, 76, 178, 0.08)');
-
   // Dynamic relative urgency date parsing
   const urgency = getRelativeUrgency(deadline, false, status === 'completed');
 
@@ -359,7 +354,7 @@ function SurveyCard({ survey, colors }: SurveyCardProps) {
           backgroundColor: colors.surfaceLowest,
           borderWidth: 1,
           shadowColor: '#000',
-          shadowOffset: { width: 0, height: 4 },
+          shadowOffset: { width: 0, height: 2 },
         },
         animatedStyle
       ]}
@@ -369,66 +364,60 @@ function SurveyCard({ survey, colors }: SurveyCardProps) {
       {/* Left accent strip */}
       <View style={[styles.accentStrip, { backgroundColor: badgeText }]} />
 
-      {/* Card Header */}
-      <View style={styles.cardHeader}>
-        <View style={styles.cardLeft}>
-          <View style={[styles.iconCircle, { backgroundColor: iconCircleBg }]}>
-            <ClipboardList size={20} color={badgeText} strokeWidth={1.8} />
-          </View>
-          <View style={styles.cardHeaderText}>
+      {/* Main Row Content */}
+      <View style={styles.listItemContent}>
+        {/* Left Section: Info Stack */}
+        <View style={styles.listItemLeft}>
+          <View style={styles.titleRow}>
             {code ? (
-              <View style={[styles.codeBadge, { backgroundColor: scheme === 'dark' ? 'rgba(255, 255, 255, 0.08)' : 'rgba(9, 76, 178, 0.06)' }]}>
-                <Text style={[styles.codeBadgeText, { color: colors.primary }]}>
+              <View style={[styles.codeBadgeCompact, { backgroundColor: scheme === 'dark' ? 'rgba(255, 255, 255, 0.08)' : 'rgba(9, 76, 178, 0.06)' }]}>
+                <Text style={[styles.codeBadgeTextCompact, { color: colors.primary }]}>
                   {code.toUpperCase()}
                 </Text>
               </View>
             ) : null}
-            <Text style={[styles.subjectTitle, { color: colors.text }]} numberOfLines={1}>
+            <Text style={[styles.itemTitle, { color: colors.text }]} numberOfLines={1}>
               {displayCourseName}
             </Text>
+          </View>
+          
+          <View style={styles.subRow}>
             {displaySurveyTitle ? (
-              <Text style={[styles.subjectSubtitle, { color: colors.textSecondary }]}>
+              <Text style={[styles.itemSubtitle, { color: colors.textSecondary }]} numberOfLines={1}>
                 {displaySurveyTitle}
               </Text>
             ) : null}
-          </View>
-        </View>
-        <View style={[styles.perfBadge, { backgroundColor: badgeBg }]}>
-          <StatusIcon size={12} color={badgeText} strokeWidth={2.2} />
-          <Text style={[styles.perfBadgeText, { color: badgeText }]}>{label}</Text>
-        </View>
-      </View>
-
-      {/* Card Content (Divider + Description + MetaRow) */}
-      <View style={styles.cardContent}>
-        {(description || deadline || url) ? (
-          <>
-            <View style={[styles.divider, { backgroundColor: colors.outlineVariant }]} />
-            {description ? (
-              <Text style={[styles.surveyDesc, { color: colors.textSecondary, marginBottom: (deadline || url) ? 10 : 0 }]} numberOfLines={2}>
-                {description}
-              </Text>
-            ) : null}
-            {(deadline || url) ? (
-              <View style={styles.metaRow}>
-                {deadline ? (
-                  <View style={styles.metaItem}>
-                    <Clock3 size={12} color={urgency.color} style={{ opacity: 0.8 }} />
-                    <Text style={[styles.surveyMeta, { color: urgency.color, fontFamily: Fonts.bodyMedium }]}>
-                      {urgency.text}
-                    </Text>
-                  </View>
-                ) : null}
-                {url ? (
-                  <View style={[styles.metaItem, { marginLeft: 'auto' }]}>
-                    <ExternalLink size={12} color={colors.primary} />
-                    <Text style={[styles.linkHint, { color: colors.primary }]}>Open survey</Text>
-                  </View>
-                ) : null}
+            
+            {deadline ? (
+              <View style={styles.deadlineRow}>
+                {displaySurveyTitle ? <Text style={[styles.dotSeparator, { color: colors.textSecondary }]}>•</Text> : null}
+                <Clock3 size={10} color={urgency.color} style={styles.deadlineIcon} />
+                <Text style={[styles.itemDeadline, { color: urgency.color }]}>
+                  {urgency.label === 'Done' ? 'Completed' : urgency.text}
+                </Text>
               </View>
             ) : null}
-          </>
-        ) : null}
+          </View>
+
+          {description ? (
+            <Text style={[styles.itemDesc, { color: colors.textSecondary }]} numberOfLines={1}>
+              {description}
+            </Text>
+          ) : null}
+        </View>
+
+        {/* Right Section: Status Pill + Link */}
+        <View style={styles.listItemRight}>
+          <View style={[styles.statusBadgeCompact, { backgroundColor: badgeBg }]}>
+            <StatusIcon size={10} color={badgeText} strokeWidth={2.5} />
+            <Text style={[styles.statusBadgeTextCompact, { color: badgeText }]}>{label}</Text>
+          </View>
+          {url ? (
+            <View style={styles.actionIconContainer}>
+              <ExternalLink size={12} color={colors.primary} />
+            </View>
+          ) : null}
+        </View>
       </View>
     </AnimatedPressable>
   );
@@ -742,14 +731,14 @@ const styles = StyleSheet.create({
     opacity: 0.8,
   },
   surveyCard: {
-    borderRadius: 16,
+    borderRadius: 12,
     borderWidth: 1,
     overflow: 'hidden',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.04,
-    shadowRadius: 6,
-    elevation: 2,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.02,
+    shadowRadius: 3,
+    elevation: 1.5,
     position: 'relative',
     paddingLeft: 12,
   },
@@ -758,100 +747,97 @@ const styles = StyleSheet.create({
     left: 0,
     top: 0,
     bottom: 0,
-    width: 5,
+    width: 4,
   },
-  cardHeader: {
+  listItemContent: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    padding: Spacing.three,
-    gap: Spacing.one,
-    minHeight: 64,
+    paddingVertical: 10,
+    paddingRight: 10,
   },
-  cardLeft: {
+  listItemLeft: {
+    flex: 1,
+    paddingRight: 8,
+  },
+  titleRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: Spacing.three,
-    flex: 1,
+    gap: 6,
+    flexWrap: 'wrap',
   },
-  cardHeaderText: {
-    flex: 1,
-    gap: 3,
+  codeBadgeCompact: {
+    paddingHorizontal: 5,
+    paddingVertical: 1.5,
+    borderRadius: 4,
   },
-  codeBadge: {
-    alignSelf: 'flex-start',
-    paddingHorizontal: 6,
-    paddingVertical: 2.5,
-    borderRadius: 6,
-    marginBottom: 2,
-  },
-  codeBadgeText: {
+  codeBadgeTextCompact: {
     fontFamily: Fonts.bodyBold,
     fontSize: 9,
-    letterSpacing: 0.5,
+    letterSpacing: 0.3,
     textTransform: 'uppercase',
   },
-  subjectTitle: {
+  itemTitle: {
     fontFamily: Fonts.bodyBold,
-    fontSize: 15,
+    fontSize: 14,
+    flex: 1,
   },
-  subjectSubtitle: {
+  subRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 2,
+    flexWrap: 'wrap',
+  },
+  itemSubtitle: {
     fontFamily: Fonts.body,
     fontSize: 11,
     opacity: 0.7,
   },
-  perfBadge: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: Roundness.full,
+  dotSeparator: {
+    fontSize: 11,
+    marginHorizontal: 4,
+    opacity: 0.5,
+  },
+  deadlineRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
   },
-  perfBadgeText: {
-    fontFamily: Fonts.bodyBold,
-    fontSize: 12,
+  deadlineIcon: {
+    marginRight: 3,
+    opacity: 0.8,
   },
-  cardContent: {
-    paddingBottom: Spacing.two,
-    paddingHorizontal: Spacing.three,
-  },
-  divider: {
-    height: 0.5,
-    marginBottom: Spacing.two,
-  },
-  iconCircle: {
-    width: 44,
-    height: 44,
-    borderRadius: Roundness.full,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  surveyDesc: {
-    fontFamily: Fonts.body,
-    fontSize: 12,
-    lineHeight: 18,
-    opacity: 0.75,
-  },
-  surveyMeta: {
+  itemDeadline: {
     fontFamily: Fonts.bodyMedium,
     fontSize: 11,
-    opacity: 0.7,
   },
-  linkHint: {
-    fontFamily: Fonts.bodyBold,
+  itemDesc: {
+    fontFamily: Fonts.body,
     fontSize: 11,
-  },
-  metaRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
+    opacity: 0.6,
     marginTop: 2,
   },
-  metaItem: {
+  listItemRight: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    gap: 6,
+  },
+  statusBadgeCompact: {
+    paddingHorizontal: 8,
+    paddingVertical: 3.5,
+    borderRadius: Roundness.full,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+  },
+  statusBadgeTextCompact: {
+    fontFamily: Fonts.bodyBold,
+    fontSize: 10,
+  },
+  actionIconContainer: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    width: 20,
+    height: 20,
   },
   centerContainer: {
     flex: 1,
