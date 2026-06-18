@@ -9,6 +9,7 @@
  */
 
 import * as cheerio from 'cheerio/slim';
+import { logParserError } from './observability';
 
 const MAX_HTML_LENGTH = 1.5 * 1024 * 1024; // 1.5 MB
 const isDev = typeof __DEV__ !== 'undefined' ? __DEV__ : true;
@@ -515,11 +516,12 @@ function cleanExamName(sectionTitle: string, examVal: string): string {
  * Parse results page. Outputs plaintext strings only. Consolidates on Cheerio.
  */
 export function parseResults(html: string): SubjectResult[] {
-  const results: SubjectResult[] = [];
+  try {
+    const results: SubjectResult[] = [];
 
-  if (html.length > MAX_HTML_LENGTH) {
-    throw new Error('HTML payload too large');
-  }
+    if (html.length > MAX_HTML_LENGTH) {
+      throw new Error('HTML payload too large');
+    }
 
   const $ = cheerio.load(html);
   const $tables = $('table');
@@ -787,6 +789,10 @@ export function parseResults(html: string): SubjectResult[] {
   }
 
   return results;
+  } catch (error) {
+    logParserError('parseResults', error, html);
+    throw error;
+  }
 }
 
 // ─── Assignments ────────────────────────────────────────────────────────────
@@ -816,67 +822,72 @@ function normalizeAssignmentStatus(raw: string): AssignmentStatus {
  * Parse assignments. Consolidates on Cheerio.
  */
 export function parseAssignments(html: string): Assignment[] {
-  const results: Assignment[] = [];
+  try {
+    const results: Assignment[] = [];
 
-  if (html.length > MAX_HTML_LENGTH) {
-    throw new Error('HTML payload too large');
-  }
+    if (html.length > MAX_HTML_LENGTH) {
+      throw new Error('HTML payload too large');
+    }
 
-  const $ = cheerio.load(html);
+    const $ = cheerio.load(html);
 
-  $('table tr').each((_, trEl) => {
-    const $row = $(trEl);
-    if ($row.find('th').length > 0) return;
+    $('table tr').each((_, trEl) => {
+      const $row = $(trEl);
+      if ($row.find('th').length > 0) return;
 
-    const cells: string[] = [];
-    $row.find('td').each((_, tdEl) => {
-      cells.push($(tdEl).text().trim());
-    });
+      const cells: string[] = [];
+      $row.find('td').each((_, tdEl) => {
+        cells.push($(tdEl).text().trim());
+      });
 
-    if (cells.length < 3) return;
+      if (cells.length < 3) return;
 
-    let dueDate = '';
-    let statusCell = '';
-    let title = '';
-    let subject = '';
+      let dueDate = '';
+      let statusCell = '';
+      let title = '';
+      let subject = '';
 
-    for (const cell of cells) {
-      if (!dueDate && /\d{1,4}[-\/]\d{1,2}[-\/]\d{1,4}/.test(cell)) {
-        dueDate = cell;
-      } else if (
-        !statusCell &&
-        /submitted|pending|overdue|not\s*submit|expired|late|completed/i.test(cell)
-      ) {
-        statusCell = cell;
+      for (const cell of cells) {
+        if (!dueDate && /\d{1,4}[-\/]\d{1,2}[-\/]\d{1,4}/.test(cell)) {
+          dueDate = cell;
+        } else if (
+          !statusCell &&
+          /submitted|pending|overdue|not\s*submit|expired|late|completed/i.test(cell)
+        ) {
+          statusCell = cell;
+        }
       }
-    }
 
-    const textCells = cells.filter(
-      (c) =>
-        c !== dueDate &&
-        c !== statusCell &&
-        isNaN(Number(c.trim())) &&
-        c.trim().length > 0
-    );
+      const textCells = cells.filter(
+        (c) =>
+          c !== dueDate &&
+          c !== statusCell &&
+          isNaN(Number(c.trim())) &&
+          c.trim().length > 0
+      );
 
-    if (textCells.length >= 2) {
-      subject = textCells[0];
-      title = textCells[1];
-    } else if (textCells.length === 1) {
-      title = textCells[0];
-    }
+      if (textCells.length >= 2) {
+        subject = textCells[0];
+        title = textCells[1];
+      } else if (textCells.length === 1) {
+        title = textCells[0];
+      }
 
-    if (!title) return;
+      if (!title) return;
 
-    results.push({
-      title: title.trim(),
-      subject: subject.trim(),
-      dueDate: dueDate || 'To be announced',
-      status: statusCell ? normalizeAssignmentStatus(statusCell) : 'unknown',
+      results.push({
+        title: title.trim(),
+        subject: subject.trim(),
+        dueDate: dueDate || 'To be announced',
+        status: statusCell ? normalizeAssignmentStatus(statusCell) : 'unknown',
+      });
     });
-  });
 
-  return results;
+    return results;
+  } catch (error) {
+    logParserError('parseAssignments', error, html);
+    throw error;
+  }
 }
 
 // ─── Surveys ────────────────────────────────────────────────────────────────
@@ -908,93 +919,98 @@ function normalizeSurveyStatus(raw: string): SurveyStatus {
  * Parse surveys. Consolidates on Cheerio and maps links directly inside each row.
  */
 export function parseSurveys(html: string): Survey[] {
-  const results: Survey[] = [];
+  try {
+    const results: Survey[] = [];
 
-  if (html.length > MAX_HTML_LENGTH) {
-    throw new Error('HTML payload too large');
+    if (html.length > MAX_HTML_LENGTH) {
+      throw new Error('HTML payload too large');
+    }
+
+    const $ = cheerio.load(html);
+
+    // Strategy 1: Table-based
+    $('table tr').each((_, trEl) => {
+      const $row = $(trEl);
+      if ($row.find('th').length > 0) return;
+
+      const cells: string[] = [];
+      $row.find('td').each((_, tdEl) => {
+        cells.push($(tdEl).text().trim());
+      });
+
+      if (cells.length < 2) return;
+
+      let title = '';
+      let statusText = '';
+      let deadline = '';
+      let url = '';
+
+      // Extract link URL directly from the same <tr> element
+      const $link = $row.find('a[href]');
+      if ($link.length > 0) {
+        const href = $link.attr('href') || '';
+        if (href) {
+          url = href.startsWith('http') ? href : `https://gcek.etlab.in${href}`;
+        }
+      }
+
+      for (const cell of cells) {
+        if (!deadline && /\d{1,4}[-\/]\d{1,2}[-\/]\d{1,4}/.test(cell)) {
+          deadline = cell;
+        } else if (
+          !statusText &&
+          /completed|pending|new|open|done|filled|available|not\s*filled/i.test(cell)
+        ) {
+          statusText = cell;
+        }
+      }
+
+      const textCells = cells.filter(
+        (c) =>
+          c !== deadline &&
+          c !== statusText &&
+          isNaN(Number(c.trim())) &&
+          c.trim().length > 0
+      );
+
+      if (textCells.length >= 1) {
+        title = textCells[0];
+      }
+
+      if (!title) return;
+
+      results.push({
+        title: title.trim(),
+        description: textCells.length >= 2 ? textCells[1].trim() : '',
+        deadline: deadline || '',
+        status: statusText ? normalizeSurveyStatus(statusText) : 'unknown',
+        url,
+      });
+    });
+
+    // Strategy 2: Card/link-based layout
+    if (results.length === 0) {
+      $('a[href*="survey"], a[href*="Survey"]').each((_, aEl) => {
+        const $a = $(aEl);
+        const surveyUrl = $a.attr('href') || '';
+        const linkText = $a.text().trim();
+        if (linkText && linkText.length > 2) {
+          results.push({
+            title: linkText,
+            description: '',
+            deadline: '',
+            status: 'unknown',
+            url: surveyUrl.startsWith('http') ? surveyUrl : `https://gcek.etlab.in${surveyUrl}`,
+          });
+        }
+      });
+    }
+
+    return results;
+  } catch (error) {
+    logParserError('parseSurveys', error, html);
+    throw error;
   }
-
-  const $ = cheerio.load(html);
-
-  // Strategy 1: Table-based
-  $('table tr').each((_, trEl) => {
-    const $row = $(trEl);
-    if ($row.find('th').length > 0) return;
-
-    const cells: string[] = [];
-    $row.find('td').each((_, tdEl) => {
-      cells.push($(tdEl).text().trim());
-    });
-
-    if (cells.length < 2) return;
-
-    let title = '';
-    let statusText = '';
-    let deadline = '';
-    let url = '';
-
-    // Extract link URL directly from the same <tr> element
-    const $link = $row.find('a[href]');
-    if ($link.length > 0) {
-      const href = $link.attr('href') || '';
-      if (href) {
-        url = href.startsWith('http') ? href : `https://gcek.etlab.in${href}`;
-      }
-    }
-
-    for (const cell of cells) {
-      if (!deadline && /\d{1,4}[-\/]\d{1,2}[-\/]\d{1,4}/.test(cell)) {
-        deadline = cell;
-      } else if (
-        !statusText &&
-        /completed|pending|new|open|done|filled|available|not\s*filled/i.test(cell)
-      ) {
-        statusText = cell;
-      }
-    }
-
-    const textCells = cells.filter(
-      (c) =>
-        c !== deadline &&
-        c !== statusText &&
-        isNaN(Number(c.trim())) &&
-        c.trim().length > 0
-    );
-
-    if (textCells.length >= 1) {
-      title = textCells[0];
-    }
-
-    if (!title) return;
-
-    results.push({
-      title: title.trim(),
-      description: textCells.length >= 2 ? textCells[1].trim() : '',
-      deadline: deadline || '',
-      status: statusText ? normalizeSurveyStatus(statusText) : 'unknown',
-      url,
-    });
-  });
-
-  // Strategy 2: Card/link-based layout
-  if (results.length === 0) {
-    $('a[href*="survey"], a[href*="Survey"]').each((_, aEl) => {
-      const $a = $(aEl);
-      const surveyUrl = $a.attr('href') || '';
-      const linkText = $a.text().trim();
-      if (linkText && linkText.length > 2) {
-        results.push({
-          title: linkText,
-          description: '',
-          deadline: '',
-          status: 'unknown',
-          url: surveyUrl.startsWith('http') ? surveyUrl : `https://gcek.etlab.in${surveyUrl}`,
-        });
-      }
-    });
-  }
-
-  return results;
 }
 
 // ─── Login page detection ───────────────────────────────────────────────────
@@ -1039,106 +1055,111 @@ export interface TimetableData {
  * Parse timetable page using Cheerio.
  */
 export function parseTimetable(html: string): TimetableData {
-  const $ = cheerio.load(html);
-  const data: TimetableData = {
-    periods: [],
-    days: [],
-  };
+  try {
+    const $ = cheerio.load(html);
+    const data: TimetableData = {
+      periods: [],
+      days: [],
+    };
 
-  $('#timetable table thead tr th').each((idx, el) => {
-    if (idx === 0) return;
-    const rawText = $(el).text().trim();
-    
-    const cleanText = rawText.replace(/\s+/g, ' ');
-    const timeMatch = cleanText.match(/(Period\s+\d+)\s*(?:\[\s*([^\]]+)\s*\])?/i);
-    
-    if (timeMatch) {
-      data.periods.push({
-        index: idx,
-        label: timeMatch[1].trim(),
-        timeSlot: timeMatch[2] ? timeMatch[2].replace(/\s+/g, '').replace('--', ' - ').replace('-', ' - ') : undefined,
-      });
-    } else {
-      data.periods.push({
-        index: idx,
-        label: `Period ${idx}`,
-      });
-    }
-  });
-
-  $('#timetable table tbody tr').each((_, trEl) => {
-    const $row = $(trEl);
-    const dayName = $row.find('td').first().text().trim();
-    if (!dayName) return;
-
-    const periods: TimetableCell[] = [];
-
-    $row.find('td').each((tdIdx, tdEl) => {
-      if (tdIdx === 0) return; 
-      const $td = $(tdEl);
-      const className = ($td.attr('class') || '').toUpperCase().trim();
+    $('#timetable table thead tr th').each((idx, el) => {
+      if (idx === 0) return;
+      const rawText = $(el).text().trim();
       
-      const parts: string[] = [];
-      $td.contents().each((_, node) => {
-        if (node.type === 'text') {
-          const text = $(node).text().trim();
-          if (text) parts.push(text);
-        } else {
-          const text = $(node).text().trim();
-          if (text) parts.push(text);
-        }
-      });
+      const cleanText = rawText.replace(/\s+/g, ' ');
+      const timeMatch = cleanText.match(/(Period\s+\d+)\s*(?:\[\s*([^\]]+)\s*\])?/i);
+      
+      if (timeMatch) {
+        data.periods.push({
+          index: idx,
+          label: timeMatch[1].trim(),
+          timeSlot: timeMatch[2] ? timeMatch[2].replace(/\s+/g, '').replace('--', ' - ').replace('-', ' - ') : undefined,
+        });
+      } else {
+        data.periods.push({
+          index: idx,
+          label: `Period ${idx}`,
+        });
+      }
+    });
 
-      let subject = '';
-      let type = '';
-      let teacher = '';
+    $('#timetable table tbody tr').each((_, trEl) => {
+      const $row = $(trEl);
+      const dayName = $row.find('td').first().text().trim();
+      if (!dayName) return;
 
-      if (parts.length > 0) {
-        subject = parts[0];
-        if (parts.length > 1) {
-          if (parts[1].startsWith('[') && parts[1].endsWith(']')) {
-            type = parts[1].replace(/[\[\]]/g, '').trim();
-            if (parts.length > 2) {
-              teacher = parts.slice(2).join(' ');
-            }
+      const periods: TimetableCell[] = [];
+
+      $row.find('td').each((tdIdx, tdEl) => {
+        if (tdIdx === 0) return; 
+        const $td = $(tdEl);
+        const className = ($td.attr('class') || '').toUpperCase().trim();
+        
+        const parts: string[] = [];
+        $td.contents().each((_, node) => {
+          if (node.type === 'text') {
+            const text = $(node).text().trim();
+            if (text) parts.push(text);
           } else {
-            teacher = parts.slice(1).join(' ');
+            const text = $(node).text().trim();
+            if (text) parts.push(text);
+          }
+        });
+
+        let subject = '';
+        let type = '';
+        let teacher = '';
+
+        if (parts.length > 0) {
+          subject = parts[0];
+          if (parts.length > 1) {
+            if (parts[1].startsWith('[') && parts[1].endsWith(']')) {
+              type = parts[1].replace(/[\[\]]/g, '').trim();
+              if (parts.length > 2) {
+                teacher = parts.slice(2).join(' ');
+              }
+            } else {
+              teacher = parts.slice(1).join(' ');
+            }
           }
         }
-      }
 
-      let classType: TimetableCell['classType'] = '';
-      if (className.includes('TR')) classType = 'TR';
-      else if (className.includes('PR')) classType = 'PR';
-      else if (className.includes('EL')) classType = 'EL';
-      else if (className.includes('TL')) classType = 'TL';
-      else if (className.includes('FP')) classType = 'FP';
-      else if (className.includes('DR')) classType = 'DR';
-      else if (className.includes('MIN')) classType = 'MIN';
+        let classType: TimetableCell['classType'] = '';
+        if (className.includes('TR')) classType = 'TR';
+        else if (className.includes('PR')) classType = 'PR';
+        else if (className.includes('EL')) classType = 'EL';
+        else if (className.includes('TL')) classType = 'TL';
+        else if (className.includes('FP')) classType = 'FP';
+        else if (className.includes('DR')) classType = 'DR';
+        else if (className.includes('MIN')) classType = 'MIN';
 
-      if (!subject) {
-        if (classType === 'FP') {
-          subject = 'Free Period';
-        } else if (classType === 'MIN') {
-          subject = 'Free Period / Mini Project';
-        } else {
-          subject = 'Free Period';
+        if (!subject) {
+          if (classType === 'FP') {
+            subject = 'Free Period';
+          } else if (classType === 'MIN') {
+            subject = 'Free Period / Mini Project';
+          } else {
+            subject = 'Free Period';
+          }
         }
-      }
 
-      periods.push({
-        subject,
-        type: type || (classType === 'TR' ? 'Theory' : classType === 'PR' ? 'Practical' : classType === 'EL' ? 'Elective' : classType === 'TL' ? 'Tutorial' : ''),
-        teacher: teacher || undefined,
-        classType,
+        periods.push({
+          subject,
+          type: type || (classType === 'TR' ? 'Theory' : classType === 'PR' ? 'Practical' : classType === 'EL' ? 'Elective' : classType === 'TL' ? 'Tutorial' : ''),
+          teacher: teacher || undefined,
+          classType,
+        });
+      });
+
+      data.days.push({
+        day: dayName,
+        periods,
       });
     });
 
-    data.days.push({
-      day: dayName,
-      periods,
-    });
-  });
-
-  return data;
+    return data;
+  } catch (error) {
+    logParserError('parseTimetable', error, html);
+    throw error;
+  }
 }

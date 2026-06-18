@@ -12,8 +12,20 @@
 
 import { Platform, NativeModules } from 'react-native';
 import { parseAttendanceFormOptions } from './etlab-parser';
+import { logScraperTransaction } from './observability';
 
 const BASE_URL = 'https://gcek.etlab.in';
+
+function getTransactionType(url: string): string {
+  if (url.includes('viewattendancesubject')) return 'Attendance';
+  if (url.includes('results')) return 'Results';
+  if (url.includes('assignments')) return 'Assignments';
+  if (url.includes('viewall')) return 'Surveys';
+  if (url.includes('timetable')) return 'Timetable';
+  if (url.includes('attendance')) return 'Attendance History';
+  if (url.includes('login')) return 'Login';
+  return 'Page Fetch';
+}
 
 const hasNativeCookieManager = !!(
   NativeModules.RNCookieManagerIOS ||
@@ -223,95 +235,115 @@ export async function loginToEtlab(
     };
   }
 
-  // Step 1: GET login page
-  const loginPageRes = await fetchWithTimeout(`${BASE_URL}/user/login`, {
-    headers: { 'User-Agent': 'MyGCEK/1.0' },
-    credentials: 'include',
-  }, 12000, 2);
+  const startTime = Date.now();
+  let isSuccess = false;
+  let errorToLog: any = null;
 
-  const loginPageHtml = await loginPageRes.text();
-  const csrfToken = extractCsrfToken(loginPageHtml);
-  
-  if (!csrfToken) {
-    return {
-      success: false,
-      studentId: '',
-      error: 'Could not extract CSRF security token from login page. Please check your network connection or try again.',
-    };
-  }
-  
-  const csrfFieldName = extractCsrfFieldName(loginPageHtml);
+  try {
+    // Step 1: GET login page
+    const loginPageRes = await fetchWithTimeout(`${BASE_URL}/user/login`, {
+      headers: { 'User-Agent': 'MyGCEK/1.0' },
+      credentials: 'include',
+    }, 12000, 2);
 
-  // Introduce a small delay on iOS to allow the background cookie thread
-  // to finish persisting the CSRF cookie to the native cookie jar.
-  if (Platform.OS === 'ios') {
-    await sleep(300);
-  }
-
-  // Step 2: POST credentials
-  const formBody = new URLSearchParams();
-  formBody.append(csrfFieldName, csrfToken);
-  formBody.append('LoginForm[username]', username);
-  formBody.append('LoginForm[password]', password);
-  formBody.append('LoginForm[rememberMe]', rememberMe ? '1' : '0');
-
-  const loginRes = await fetchWithTimeout(`${BASE_URL}/user/login`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/x-www-form-urlencoded',
-      'User-Agent': 'MyGCEK/1.0',
-      'Origin': BASE_URL,
-      'Referer': `${BASE_URL}/user/login`,
-      'X-Requested-With': 'XMLHttpRequest',
-    },
-    body: formBody.toString(),
-    credentials: 'include',
-  }, 15000, 0);
-
-  const responseHtml = await loginRes.text();
-
-  if (
-    responseHtml.includes('LoginForm[username]') ||
-    responseHtml.includes('LoginForm[password]')
-  ) {
-    return {
-      success: false,
-      studentId: '',
-      error: extractLoginError(responseHtml),
-    };
-  }
-
-  // Step 3: extract student ID if possible
-  let studentId = extractStudentId(responseHtml) || '';
-
-  if (!studentId) {
-    try {
-      const attPageRes = await fetchWithTimeout(`${BASE_URL}/student/attendance`, {
-        headers: { 'User-Agent': 'MyGCEK/1.0' },
-        credentials: 'include',
-      }, 10000, 1);
-      const attPageHtml = await attPageRes.text();
-      studentId = extractStudentId(attPageHtml) || '';
-    } catch {
-      // ignore
+    const loginPageHtml = await loginPageRes.text();
+    const csrfToken = extractCsrfToken(loginPageHtml);
+    
+    if (!csrfToken) {
+      const errRes = {
+        success: false,
+        studentId: '',
+        error: 'Could not extract CSRF security token from login page. Please check your network connection or try again.',
+      };
+      errorToLog = new Error(errRes.error);
+      return errRes;
     }
-  }
+    
+    const csrfFieldName = extractCsrfFieldName(loginPageHtml);
 
-  // Step 4: confirm the session is actually usable before declaring success
-  const sessionReady = await waitForSessionReady();
-  if (!sessionReady) {
+    // Introduce a small delay on iOS to allow the background cookie thread
+    // to finish persisting the CSRF cookie to the native cookie jar.
+    if (Platform.OS === 'ios') {
+      await sleep(300);
+    }
+
+    // Step 2: POST credentials
+    const formBody = new URLSearchParams();
+    formBody.append(csrfFieldName, csrfToken);
+    formBody.append('LoginForm[username]', username);
+    formBody.append('LoginForm[password]', password);
+    formBody.append('LoginForm[rememberMe]', rememberMe ? '1' : '0');
+
+    const loginRes = await fetchWithTimeout(`${BASE_URL}/user/login`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'User-Agent': 'MyGCEK/1.0',
+        'Origin': BASE_URL,
+        'Referer': `${BASE_URL}/user/login`,
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      body: formBody.toString(),
+      credentials: 'include',
+    }, 15000, 0);
+
+    const responseHtml = await loginRes.text();
+
+    if (
+      responseHtml.includes('LoginForm[username]') ||
+      responseHtml.includes('LoginForm[password]')
+    ) {
+      const errText = extractLoginError(responseHtml);
+      const errRes = {
+        success: false,
+        studentId: '',
+        error: errText,
+      };
+      errorToLog = new Error(errText);
+      return errRes;
+    }
+
+    // Step 3: extract student ID if possible
+    let studentId = extractStudentId(responseHtml) || '';
+
+    if (!studentId) {
+      try {
+        const attPageRes = await fetchWithTimeout(`${BASE_URL}/student/attendance`, {
+          headers: { 'User-Agent': 'MyGCEK/1.0' },
+          credentials: 'include',
+        }, 10000, 1);
+        const attPageHtml = await attPageRes.text();
+        studentId = extractStudentId(attPageHtml) || '';
+      } catch {
+        // ignore
+      }
+    }
+
+    // Step 4: confirm the session is actually usable before declaring success
+    const sessionReady = await waitForSessionReady();
+    if (!sessionReady) {
+      const errRes = {
+        success: false,
+        studentId: '',
+        error:
+          'Login was accepted, but the session was not ready yet. Please try again.',
+      };
+      errorToLog = new Error(errRes.error);
+      return errRes;
+    }
+
+    isSuccess = true;
     return {
-      success: false,
-      studentId: '',
-      error:
-        'Login was accepted, but the session was not ready yet. Please try again.',
+      success: true,
+      studentId,
     };
+  } catch (err: any) {
+    errorToLog = err;
+    throw err;
+  } finally {
+    const durationMs = Date.now() - startTime;
+    logScraperTransaction('Login', isSuccess, durationMs, errorToLog);
   }
-
-  return {
-    success: true,
-    studentId,
-  };
 }
 
 // ─── Session validation ─────────────────────────────────────────────────────
@@ -355,76 +387,93 @@ export interface FetchPageResult {
  * Detects session expiry (redirect to login page).
  */
 export async function fetchPage(url: string): Promise<FetchPageResult> {
-  const res = await fetchWithTimeout(url, {
-    headers: { 'User-Agent': 'MyGCEK/1.0' },
-    redirect: 'manual',
-    credentials: 'include',
-  }, 12000, 2);
+  const startTime = Date.now();
+  const type = getTransactionType(url);
+  let isSuccess = false;
+  let errorToLog: any = null;
 
-  // Redirect to login = session expired
-  if (res.status >= 300 && res.status < 400) {
-    const location = res.headers.get('location') || '';
-    if (location.includes('login') || location === '/' || location === `${BASE_URL}/`) {
-      return { ok: false, html: '', sessionExpired: true };
-    }
-    
-    // Non-login redirect — validate host & scheme before following
-    let absUrl: URL;
-    try {
-      absUrl = new URL(location, BASE_URL);
-    } catch {
-      if (__DEV__) {
-        console.warn(`[Security] Invalid redirect location: ${location}`);
-      }
-      return { ok: false, html: '', sessionExpired: false };
-    }
-
-    if (absUrl.protocol !== 'https:' || absUrl.host !== 'gcek.etlab.in') {
-      if (__DEV__) {
-        console.warn(`[Security] Blocked non-HTTPS or external redirect to: ${absUrl.toString()}`);
-      }
-      return { ok: false, html: '', sessionExpired: false };
-    }
-
-    const followRes = await fetchWithTimeout(absUrl.toString(), {
+  try {
+    const res = await fetchWithTimeout(url, {
       headers: { 'User-Agent': 'MyGCEK/1.0' },
+      redirect: 'manual',
       credentials: 'include',
     }, 12000, 2);
-    
-    if (!followRes.ok) {
+
+    // Redirect to login = session expired
+    if (res.status >= 300 && res.status < 400) {
+      const location = res.headers.get('location') || '';
+      if (location.includes('login') || location === '/' || location === `${BASE_URL}/`) {
+        return { ok: false, html: '', sessionExpired: true };
+      }
+      
+      // Non-login redirect — validate host & scheme before following
+      let absUrl: URL;
+      try {
+        absUrl = new URL(location, BASE_URL);
+      } catch {
+        if (__DEV__) {
+          console.warn(`[Security] Invalid redirect location: ${location}`);
+        }
+        return { ok: false, html: '', sessionExpired: false };
+      }
+
+      if (absUrl.protocol !== 'https:' || absUrl.host !== 'gcek.etlab.in') {
+        if (__DEV__) {
+          console.warn(`[Security] Blocked non-HTTPS or external redirect to: ${absUrl.toString()}`);
+        }
+        return { ok: false, html: '', sessionExpired: false };
+      }
+
+      const followRes = await fetchWithTimeout(absUrl.toString(), {
+        headers: { 'User-Agent': 'MyGCEK/1.0' },
+        credentials: 'include',
+      }, 12000, 2);
+      
+      if (!followRes.ok) {
+        errorToLog = new Error(`Redirect fetch failed with status: ${followRes.status}`);
+        return { ok: false, html: '', sessionExpired: false };
+      }
+
+      const followHtml = await followRes.text();
+      if (
+        followHtml.includes('LoginForm[username]') || 
+        followHtml.includes('LoginForm[password]') ||
+        followHtml.includes('id="loginForm"')
+      ) {
+        return { ok: false, html: '', sessionExpired: true };
+      }
+      isSuccess = true;
+      return { ok: true, html: followHtml, sessionExpired: false };
+    }
+
+    if (!res.ok) {
+      if (__DEV__) {
+        console.warn(`[Auth] Fetch failed for URL: ${url} with status: ${res.status}`);
+      }
+      errorToLog = new Error(`Fetch failed with status: ${res.status}`);
       return { ok: false, html: '', sessionExpired: false };
     }
 
-    const followHtml = await followRes.text();
+    const html = await res.text();
+
+    // Double-check: if the response HTML is actually the login page
     if (
-      followHtml.includes('LoginForm[username]') || 
-      followHtml.includes('LoginForm[password]') ||
-      followHtml.includes('id="loginForm"')
+      html.includes('LoginForm[username]') || 
+      html.includes('LoginForm[password]') ||
+      html.includes('id="loginForm"')
     ) {
       return { ok: false, html: '', sessionExpired: true };
     }
-    return { ok: true, html: followHtml, sessionExpired: false };
+
+    isSuccess = true;
+    return { ok: true, html, sessionExpired: false };
+  } catch (err: any) {
+    errorToLog = err;
+    throw err;
+  } finally {
+    const durationMs = Date.now() - startTime;
+    logScraperTransaction(type, isSuccess, durationMs, errorToLog);
   }
-
-  if (!res.ok) {
-    if (__DEV__) {
-      console.warn(`[Auth] Fetch failed for URL: ${url} with status: ${res.status}`);
-    }
-    return { ok: false, html: '', sessionExpired: false };
-  }
-
-  const html = await res.text();
-
-  // Double-check: if the response HTML is actually the login page
-  if (
-    html.includes('LoginForm[username]') || 
-    html.includes('LoginForm[password]') ||
-    html.includes('id="loginForm"')
-  ) {
-    return { ok: false, html: '', sessionExpired: true };
-  }
-
-  return { ok: true, html, sessionExpired: false };
 }
 
 /** Fetch the attendance page for a specific student. */
@@ -539,42 +588,56 @@ export async function fetchAttendanceHistory(): Promise<FetchAttendanceHistoryRe
       formBody.append('month', my.month);
       formBody.append('year', my.year);
 
-      const postRes = await fetchWithTimeout(`${BASE_URL}/ktuacademics/student/attendance`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-          'User-Agent': 'MyGCEK/1.0',
-          'Origin': BASE_URL,
-          'Referer': `${BASE_URL}/ktuacademics/student/attendance`,
-        },
-        body: formBody.toString(),
-        credentials: 'include',
-      }, 12000, 0);
+      const postStartTime = Date.now();
+      let postSuccess = false;
+      let postError: any = null;
 
-      if (postRes.status >= 300 && postRes.status < 400) {
-        const location = postRes.headers.get('location') || '';
-        if (location.includes('login') || location === '/' || location === `${BASE_URL}/`) {
+      try {
+        const postRes = await fetchWithTimeout(`${BASE_URL}/ktuacademics/student/attendance`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'User-Agent': 'MyGCEK/1.0',
+            'Origin': BASE_URL,
+            'Referer': `${BASE_URL}/ktuacademics/student/attendance`,
+          },
+          body: formBody.toString(),
+          credentials: 'include',
+        }, 12000, 0);
+
+        if (postRes.status >= 300 && postRes.status < 400) {
+          const location = postRes.headers.get('location') || '';
+          if (location.includes('login') || location === '/' || location === `${BASE_URL}/`) {
+            return { ok: false, htmls: [], sessionExpired: true };
+          }
+        }
+
+        if (!postRes.ok) {
+          if (__DEV__) {
+            console.warn(`[API] POST failed for month=${my.month}, year=${my.year} with status: ${postRes.status}`);
+          }
+          postError = new Error(`POST failed with status: ${postRes.status}`);
+          continue;
+        }
+
+        const postHtml = await postRes.text();
+        if (
+          postHtml.includes('LoginForm[username]') || 
+          postHtml.includes('LoginForm[password]') ||
+          postHtml.includes('id="loginForm"')
+        ) {
           return { ok: false, htmls: [], sessionExpired: true };
         }
-      }
 
-      if (!postRes.ok) {
-        if (__DEV__) {
-          console.warn(`[API] POST failed for month=${my.month}, year=${my.year} with status: ${postRes.status}`);
-        }
-        continue;
+        htmls.push(postHtml);
+        postSuccess = true;
+      } catch (err: any) {
+        postError = err;
+        throw err;
+      } finally {
+        const postDurationMs = Date.now() - postStartTime;
+        logScraperTransaction(`Attendance History (Month ${my.month})`, postSuccess, postDurationMs, postError);
       }
-
-      const postHtml = await postRes.text();
-      if (
-        postHtml.includes('LoginForm[username]') || 
-        postHtml.includes('LoginForm[password]') ||
-        postHtml.includes('id="loginForm"')
-      ) {
-        return { ok: false, htmls: [], sessionExpired: true };
-      }
-
-      htmls.push(postHtml);
     }
   } catch (err) {
     if (__DEV__) {
