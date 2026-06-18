@@ -15,13 +15,14 @@ import { LoginProvider, useLogin } from '@/components/login-context';
 import { Colors, Fonts } from '@/constants/theme';
 import Toast from 'react-native-toast-message';
 import { useNavigationContainerRef } from 'expo-router';
-import { isRunningInExpoGo } from 'expo';
-
-// ─── Sentry Observability Configuration ─────────────────────────────────────
+import Constants from 'expo-constants';
 import * as Sentry from '@sentry/react-native';
 
+const isRunningInExpoGo = Constants.appOwnership === 'expo';
+
+// ─── Sentry Observability Configuration ─────────────────────────────────────
 const navigationIntegration = Sentry.reactNavigationIntegration({
-  enableTimeToInitialDisplay: !isRunningInExpoGo(),
+  enableTimeToInitialDisplay: !isRunningInExpoGo,
   ignoreEmptyBackNavigationTransactions: true,
 });
 
@@ -32,7 +33,7 @@ Sentry.init({
   sessionTrackingIntervalMillis: 30000,
   tracesSampleRate: 1.0,
   integrations: [navigationIntegration],
-  enableNativeFramesTracking: !isRunningInExpoGo(),
+  enableNativeFramesTracking: !isRunningInExpoGo,
 });
 
 // Keep splash screen visible until fonts load
