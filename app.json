@@ -43,6 +43,14 @@
           "organization": "gcek",
           "project": "react-native"
         }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "abiFilters": ["arm64-v8a"]
+          }
+        }
       ]
     ],
     "experiments": {
