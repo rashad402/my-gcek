@@ -21,20 +21,31 @@ import * as Sentry from '@sentry/react-native';
 const isRunningInExpoGo = Constants.appOwnership === 'expo';
 
 // ─── Sentry Observability Configuration ─────────────────────────────────────
-const navigationIntegration = Sentry.reactNavigationIntegration({
-  enableTimeToInitialDisplay: !isRunningInExpoGo,
-  ignoreEmptyBackNavigationTransactions: true,
-});
+// Wrapped in try/catch: if the Sentry native module fails to bind in a
+// standalone build, the app degrades gracefully instead of crashing on launch.
+let navigationIntegration: ReturnType<typeof Sentry.reactNavigationIntegration> | null = null;
+let sentryInitialised = false;
 
-Sentry.init({
-  dsn: 'https://0193bf2f9a611446b68b1f3304da7710@o4511584753942528.ingest.de.sentry.io/4511584757678160',
-  debug: false,
-  enableAutoSessionTracking: true,
-  sessionTrackingIntervalMillis: 30000,
-  tracesSampleRate: 1.0,
-  integrations: [navigationIntegration],
-  enableNativeFramesTracking: !isRunningInExpoGo,
-});
+try {
+  navigationIntegration = Sentry.reactNavigationIntegration({
+    enableTimeToInitialDisplay: !isRunningInExpoGo,
+    ignoreEmptyBackNavigationTransactions: true,
+  });
+
+  Sentry.init({
+    dsn: 'https://0193bf2f9a611446b68b1f3304da7710@o4511584753942528.ingest.de.sentry.io/4511584757678160',
+    debug: false,
+    enableAutoSessionTracking: true,
+    sessionTrackingIntervalMillis: 30000,
+    tracesSampleRate: 1.0,
+    integrations: navigationIntegration ? [navigationIntegration] : [],
+    enableNativeFramesTracking: !isRunningInExpoGo,
+  });
+
+  sentryInitialised = true;
+} catch (e) {
+  console.error('[Sentry] Initialisation failed — running without observability:', e);
+}
 
 // Keep splash screen visible until fonts load
 SplashScreen.preventAutoHideAsync().catch(() => {});
@@ -122,7 +133,7 @@ function TabLayout() {
   const ref = useNavigationContainerRef();
 
   useEffect(() => {
-    if (ref) {
+    if (ref && navigationIntegration) {
       navigationIntegration.registerNavigationContainer(ref);
     }
   }, [ref]);
@@ -141,11 +152,17 @@ function TabLayout() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
         <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-          <Sentry.ErrorBoundary fallback={({ error, resetError }) => <ErrorFallback error={error} resetError={resetError} />}>
+          {sentryInitialised ? (
+            <Sentry.ErrorBoundary fallback={({ error, resetError }) => <ErrorFallback error={error} resetError={resetError} />}>
+              <LoginProvider>
+                <AppContent />
+              </LoginProvider>
+            </Sentry.ErrorBoundary>
+          ) : (
             <LoginProvider>
               <AppContent />
             </LoginProvider>
-          </Sentry.ErrorBoundary>
+          )}
         </ThemeProvider>
       </SafeAreaProvider>
       <Toast />
@@ -153,5 +170,7 @@ function TabLayout() {
   );
 }
 
-export default Sentry.wrap(TabLayout);
+// Sentry.wrap can crash if the native module isn't bound.
+// Only wrap when Sentry initialised successfully.
+export default sentryInitialised ? Sentry.wrap(TabLayout) : TabLayout;
 
